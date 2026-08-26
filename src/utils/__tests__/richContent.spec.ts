@@ -42,6 +42,23 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('| a | b |\n| --- | --- |\n| 1 | 2 |')
     expect(html).toContain('<table')
   })
+
+  it('GitHub 表情短码(:warning: 等)被转换为 emoji', () => {
+    const html = renderMarkdown(':warning: Attention Required')
+    expect(html).toContain('⚠️')
+    expect(html).not.toContain(':warning:')
+  })
+
+  it('多个表情短码在渲染时一并转换', () => {
+    const html = renderMarkdown(':lady_beetle: Bug Fixes')
+    expect(html).toContain('🐞')
+    expect(html).not.toContain(':lady_beetle:')
+  })
+
+  it('未识别的短码保持原样,不影响其余内容', () => {
+    const html = renderMarkdown(':unknown_code: text')
+    expect(html).toContain('text')
+  })
 })
 
 describe('sanitizeHtml', () => {

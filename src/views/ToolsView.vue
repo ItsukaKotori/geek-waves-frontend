@@ -19,7 +19,7 @@ const registry: ToolGroup[] = [
     items: [
       {
         key: 'json',
-        label: 'JSON 格式化',
+        label: 'JSON 转换',
         component: defineAsyncComponent(() => import('../components/tools/JsonFormatter.vue')),
       },
       {

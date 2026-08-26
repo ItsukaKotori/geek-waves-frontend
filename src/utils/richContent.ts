@@ -4,6 +4,18 @@
  */
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { emojify } from 'node-emoji'
+
+// GitHub/gemoji 短码与 node-emoji(CLDR 名)不一致的别名,渲染前统一归一化。
+const EMOJI_ALIASES: Record<string, string> = {
+  ':lady_beetle:': ':beetle:',
+}
+
+/** 归一化别名后转 markdown 前,用 emojify 把短码替换成 emoji;未识别的保持原样 */
+function emojifyMarkdown(src: string): string {
+  const aliased = src.replace(/:[\w+-]+:/g, (m) => EMOJI_ALIASES[m] ?? m)
+  return emojify(aliased)
+}
 
 const BLOCK_TAG_RE = /<\/?(p|div|h[1-6]|ul|ol|pre|table|blockquote|figure|section)\b/i
 
@@ -13,9 +25,11 @@ export function looksLikeHtml(s?: string | null): boolean {
   return t.startsWith('<') || BLOCK_TAG_RE.test(t)
 }
 
-/** markdown → HTML(GFM 表格 + 单换行断行)。marked v12+ 的 parse 返回联合类型,此处恒为同步 string */
+/** markdown → HTML(GFM 表格 + 单换行断行)。
+ * 先做 GitHub 表情短码转换(marked 不识别 :warning: 等),再交给 marked;
+ * emojify 对未识别的短码原样保留,不破坏其余文本。 */
 export function renderMarkdown(src: string): string {
-  return String(marked.parse(src, { gfm: true, breaks: true, async: false }))
+  return String(marked.parse(emojifyMarkdown(src), { gfm: true, breaks: true, async: false }))
 }
 
 // 模块只被求值一次,hook 全局注册一次:外链统一新窗口打开并隔离 opener

@@ -113,3 +113,21 @@ export interface FrameworkPayload {
   name: string
   githubRepo: string
 }
+
+export interface ProxyConfig {
+  enabled: boolean
+  host: string
+  port: number
+  username?: string
+  /** 后端以掩码 "********" 返回;空表示未设置 */
+  password: string | null
+  updateTime?: string
+}
+
+export interface ProxyPayload {
+  enabled?: boolean
+  host: string
+  port: number
+  username?: string
+  password?: string
+}

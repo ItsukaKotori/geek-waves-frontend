@@ -5,6 +5,8 @@ import type {
   InfoSource,
   PageResult,
   ProviderPayload,
+  ProxyConfig,
+  ProxyPayload,
   SourcePayload,
 } from '../types'
 import { del, get, post, put } from './http'
@@ -88,4 +90,13 @@ export function deleteFramework(id: string | number): Promise<void> {
 
 export function refreshFramework(id: string | number): Promise<FrameworkWatch> {
   return post<FrameworkWatch>(`/admin/frameworks/${id}/refresh`, '')
+}
+
+/** 代理配置(设置页):GET 读取当前,PUT 保存 */
+export function fetchProxy(): Promise<ProxyConfig> {
+  return get<ProxyConfig>('/admin/proxy')
+}
+
+export function updateProxy(data: ProxyPayload): Promise<ProxyConfig> {
+  return put<ProxyConfig>('/admin/proxy', data)
 }
