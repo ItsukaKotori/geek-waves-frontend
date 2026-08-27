@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const httpRequestMock = vi.fn()
 
@@ -209,6 +211,31 @@ describe('HttpTester FE7:请求历史(localStorage)', () => {
 })
 
 describe('HttpTester FE7:响应展示(美化与截断)', () => {
+  it('阈值单一来源:SFC 模板禁止出现硬编码的 1000000 字面量', () => {
+    // 常量 MAX_RESPONSE_PREVIEW_CHARS 是唯一真源;模板必须插值而非重复写死
+    // (jsdom 下 import.meta.url 为 http scheme,故以项目根解析路径)
+    const sfc = readFileSync(resolve(process.cwd(), 'src/components/tools/HttpTester.vue'), 'utf8')
+    expect(sfc).not.toMatch(/(?<!\{\{[^}\n]*)1000000/)
+  })
+
+  it('截断提示文案与常量数字一致(防模板文案与常量漂移)', async () => {
+    httpRequestMock.mockResolvedValue({
+      status: 200,
+      tookMs: 1,
+      headers: { 'content-type': 'text/plain' },
+      body: 'a'.repeat(MAX_RESPONSE_PREVIEW_CHARS + 3),
+    })
+    const w = mount(HttpTester)
+    await w.find('input').setValue('https://example.com/big')
+    await sendVia(w)
+    await vi.waitFor(() => expect(w.text()).toContain('截断'))
+    expect(w.text()).toContain(`仅显示前 ${MAX_RESPONSE_PREVIEW_CHARS} 字符`)
+    expect(w.text()).toContain(String(MAX_RESPONSE_PREVIEW_CHARS))
+    // 阈值数字出现的次数 ≥ 2(徽章 + 无截断脚注共用同一来源;任何一处漂移都会跌破 2)
+    const occurrences = w.html().split(String(MAX_RESPONSE_PREVIEW_CHARS)).length - 1
+    expect(occurrences).toBeGreaterThanOrEqual(2)
+  })
+
   it('JSON Content-Type 自动美化', async () => {
     httpRequestMock.mockResolvedValue(RESULT)
     const w = mount(HttpTester)

@@ -10,6 +10,7 @@ import {
   headerRowsToRecord,
   historyFromCommand,
   loadHttpHistory,
+  MAX_RESPONSE_PREVIEW_CHARS,
   parseCurl,
   recordToHeaderRows,
   renderBodyPreview,
@@ -257,9 +258,9 @@ function copyOriginalBody(): void {
       <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
         <span v-if="bodyView.pretty" class="badge badge-info badge-outline">JSON 已美化展示</span>
         <span v-if="bodyView.truncated" class="badge badge-warning badge-outline">
-          响应体超过 1000000 字符阈值,已截断:仅显示前 {{ bodyView.previewChars }} 字符 / 完整共 {{ bodyView.totalChars }} 字符
+          响应体超过 {{ MAX_RESPONSE_PREVIEW_CHARS }} 字符阈值,已截断:仅显示前 {{ bodyView.previewChars }} 字符 / 完整共 {{ bodyView.totalChars }} 字符
         </span>
-        <span v-else class="opacity-60">{{ bodyView.totalChars }} 字符 · 截断阈值 1000000 字符</span>
+        <span v-else class="opacity-60">{{ bodyView.totalChars }} 字符 · 截断阈值 {{ MAX_RESPONSE_PREVIEW_CHARS }} 字符</span>
         <button class="btn btn-xs btn-ghost" @click="copyOriginalBody">
           {{ copied ? '已复制' : '复制原文' }}
         </button>
