@@ -5,6 +5,8 @@ import { nextTick } from 'vue'
 import { webcrypto } from 'node:crypto'
 import { md5 } from 'js-md5'
 import HashUuid from '../HashUuid.vue'
+import { hashChunks } from '../../../tools/hashUuid'
+import type { WorkerLike } from '../regexMatchClient'
 
 const DEBOUNCE = 150
 
@@ -83,5 +85,95 @@ describe('HashUuid 实时式交互(FE3)', () => {
     await nextTick()
     const text = w.findAll('pre').map((p) => p.text()).join('\n')
     expect(text).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/m)
+  })
+})
+
+/** 测试假 Worker:收到 hash-file 请求后在同进程内用真实纯函数计算并回包 */
+class FakeHashWorker implements WorkerLike {
+  onmessage: ((ev: { data: unknown }) => void) | null = null
+  onerror: ((ev: unknown) => void) | null = null
+  terminated = false
+
+  postMessage(msg: unknown): void {
+    const { id, file } = msg as { id: number; file: File }
+    void Promise.resolve().then(async () => {
+      if (this.terminated) return
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        this.onmessage?.({ data: { id, ok: true, digests: await hashChunks([bytes]) } })
+      } catch (e) {
+        this.onmessage?.({ data: { id, ok: false, message: (e as Error).message } })
+      }
+    })
+  }
+
+  terminate(): void {
+    this.terminated = true
+  }
+}
+
+describe('HashUuid FE5 功能补全', () => {
+  it('文件拖拽哈希:一次投递四算法并列展示(经注入 Worker 缝)', async () => {
+    const factory = vi.fn(() => new FakeHashWorker())
+    const w = mount(HashUuid, { props: { workerFactory: factory } })
+    const file = new File(['GeekWaves'], 'gw.txt')
+    await w.find('.dropzone').trigger('drop', { dataTransfer: { files: [file] } })
+    await vi.waitFor(() => {
+      expect(w.find('[data-algo="MD5"]').exists()).toBe(true)
+    })
+    const rows = w.findAll('[data-algo]').map((r) => ({
+      algo: r.attributes('data-algo'),
+      text: r.text(),
+    }))
+    expect(rows.map((r) => r.algo)).toEqual(['MD5', 'SHA-1', 'SHA-256', 'SHA-512'])
+    const md5Row = rows.find((r) => r.algo === 'MD5')!
+    expect(md5Row.text).toContain(md5('GeekWaves'))
+    // 文件名与大小信息可见
+    expect(w.text()).toContain('gw.txt')
+    expect(w.text()).toContain('9 字节')
+  })
+
+  it('大写开关即时作用于已产出哈希(无重算延迟)', async () => {
+    const w = mount(HashUuid, { props: { workerFactory: () => new FakeHashWorker() } })
+    const file = new File(['GeekWaves'], 'gw.txt')
+    await w.find('.dropzone').trigger('drop', { dataTransfer: { files: [file] } })
+    await vi.waitFor(() => {
+      expect(w.text()).toContain(md5('GeekWaves'))
+    })
+    const upperToggle = w.findAll('input[type="checkbox"]')[0]
+    await upperToggle.setValue(true)
+    await nextTick()
+    expect(w.text()).toContain(md5('GeekWaves').toUpperCase())
+  })
+
+  it('去横线选项让 UUID 输出为连续 32 位十六进制', async () => {
+    vi.stubGlobal('crypto', webcrypto)
+    const w = mount(HashUuid)
+    const stripDash = w.findAll('input[type="checkbox"]')[1]
+    await stripDash.setValue(true)
+    await w.findAll('button').find((b) => b.text() === '生成')!.trigger('click')
+    await nextTick()
+    const text = w.find('pre').text()
+    expect(text).toMatch(/^[0-9A-Fa-f]{32}$/m)
+    expect(text).not.toContain('-')
+  })
+
+  it('UUID v7 可选生成且格式正确', async () => {
+    vi.stubGlobal('crypto', webcrypto)
+    const w = mount(HashUuid)
+    await w.findAll('select')[1].setValue('v7')
+    await w.findAll('button').find((b) => b.text() === '生成')!.trigger('click')
+    await nextTick()
+    const text = w.find('pre').text()
+    expect(text).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/m)
+  })
+
+  it('文本哈希支持 SHA3 算法项', async () => {
+    vi.useFakeTimers()
+    const w = mount(HashUuid)
+    const options = w.findAll('select')[0].findAll('option').map((o) => o.element.value)
+    expect(options).toContain('SHA3-256')
+    expect(options).toContain('SHA3-512')
+    vi.useRealTimers()
   })
 })
