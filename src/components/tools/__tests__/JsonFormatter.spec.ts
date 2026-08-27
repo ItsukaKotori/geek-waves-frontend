@@ -32,13 +32,12 @@ describe('JsonFormatter 实时式交互(FE3)', () => {
     expect(preText(w)).toContain('a: 1')
   })
 
-  it('不再保留任何「计算」类按钮(JSON → x / 格式化 JSON 均转为实时)', () => {
+  it('不再保留任何「计算」类按钮(旧 JSON → x / 格式化按钮均转为实时)', () => {
     const w = mount(JsonFormatter)
     const labels = w.findAll('button').map((b) => b.text())
     expect(labels.some((t) => t.includes('JSON →') || t.includes('→ JSON'))).toBe(false)
-    expect(labels).not.toContain('格式化 JSON')
-    // 功能仍在:格式化输出改为实时视图(标签页),方向 ← 为选择器
-    expect(labels).toContain('←')
+    expect(labels.some((t) => t.includes('转换') || t.includes('格式化'))).toBe(true)
+    expect(w.findAll('button')).toHaveLength(4) // 视图切换 ×2 + 方向 →/←
   })
 
   it('反向 YAML → JSON 实时生效', async () => {
@@ -63,7 +62,7 @@ describe('JsonFormatter 实时式交互(FE3)', () => {
   it('「格式化」视图实时美化 JSON', async () => {
     vi.useFakeTimers()
     const w = mount(JsonFormatter)
-    const prettyTab = w.findAll('.tab').find((t) => t.text() === 'JSON 美化')
+    const prettyTab = w.findAll('.tab').find((t) => t.text() === '美化视图')
     await prettyTab!.trigger('click')
     await w.find('textarea').setValue('{"a":1}')
     await vi.advanceTimersByTimeAsync(DEBOUNCE)

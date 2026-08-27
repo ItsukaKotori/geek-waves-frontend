@@ -115,9 +115,9 @@ function swap(): void {
 
     <div class="tabs tabs-box tabs-sm w-fit">
       <button class="tab" :class="{ 'tab-active': view === 'convert' }" @click="view = 'convert'">
-        转换输出 → {{ toJson ? targetLabel : 'JSON' }}
+        转换视图({{ targetLabel }})
       </button>
-      <button class="tab" :class="{ 'tab-active': view === 'pretty' }" @click="view = 'pretty'">JSON 美化</button>
+      <button class="tab" :class="{ 'tab-active': view === 'pretty' }" @click="view = 'pretty'">美化视图</button>
     </div>
 
     <div class="flex flex-wrap gap-2">
