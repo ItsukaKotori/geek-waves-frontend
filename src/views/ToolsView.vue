@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, type Component } from 'vue'
+import { computed, defineAsyncComponent, type Component } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/ui/PageHeader.vue'
 
 interface ToolItem {
@@ -76,15 +77,25 @@ const registry: ToolGroup[] = [
   },
 ]
 
-const activeKey = ref('json')
+const route = useRoute()
+const router = useRouter()
 
+const allItems: ToolItem[] = registry.flatMap((g) => g.items)
+
+/** 当前工具以路由 query 为唯一数据源:直达 / 回落 / 点击同步天然一致,无双源漂移 */
 const activeItem = computed(() => {
-  for (const g of registry) {
-    const found = g.items.find((i) => i.key === activeKey.value)
-    if (found) return found
+  const requested = route.query.tool
+  if (typeof requested === 'string' && allItems.some((i) => i.key === requested)) {
+    return allItems.find((i) => i.key === requested)
   }
-  return undefined
+  return allItems[0]
 })
+
+/** replace 语义:切换不堆历史;点击已激活工具时跳过,避免重复导航警告 */
+function selectTool(item: ToolItem): void {
+  if (item.key === activeItem.value?.key) return
+  void router.replace({ query: { ...route.query, tool: item.key } })
+}
 </script>
 
 <template>
@@ -104,11 +115,11 @@ const activeItem = computed(() => {
               type="button"
               class="rounded-lg px-3 py-1.5 text-left text-sm font-medium transition-colors"
               :class="
-                activeKey === item.key
+                activeItem?.key === item.key
                   ? 'bg-base-200 text-primary'
                   : 'text-base-content/70 hover:bg-base-200/60 hover:text-base-content'
               "
-              @click="activeKey = item.key"
+              @click="selectTool(item)"
             >
               {{ item.label }}
             </button>
@@ -117,7 +128,10 @@ const activeItem = computed(() => {
       </aside>
       <section class="min-w-0 flex-1">
         <div v-if="activeItem" class="rounded-box border border-base-300 bg-base-100 p-5 md:p-6">
-          <component :is="activeItem.component" :key="activeItem.key" />
+          <!-- KeepAlive 缓存全部 8 个工具的实例:切换不销毁,输入在切走再切回时保留 -->
+          <KeepAlive>
+            <component :is="activeItem.component" />
+          </KeepAlive>
         </div>
       </section>
     </div>

@@ -2,15 +2,23 @@
 import { ref } from 'vue'
 import { base64Encode, base64Decode } from '../../tools/encodeDecode'
 import { useCopy } from '../../composables/useCopy'
+import { useToolState } from '../../composables/useToolState'
 
-const mode = ref<'b64' | 'url'>('b64')
-const input = ref('')
+type Mode = 'b64' | 'url'
+
+interface EncoderDecoderState {
+  mode: Mode
+  input: string
+}
+
+/** 输入状态经 localStorage 持久化(key 与注册表一致),刷新后恢复;输出为临时结果不入快照 */
+const { state } = useToolState<EncoderDecoderState>('b64', { mode: 'b64', input: '' })
 const output = ref('')
 const error = ref('')
 const { copied, copy } = useCopy()
 
-function switchMode(m: 'b64' | 'url') {
-  mode.value = m
+function switchMode(m: Mode) {
+  state.mode = m
   output.value = ''
   error.value = ''
 }
@@ -19,10 +27,10 @@ function run(dir: 'enc' | 'dec') {
   error.value = ''
   output.value = ''
   try {
-    if (mode.value === 'b64') {
-      output.value = dir === 'enc' ? base64Encode(input.value) : base64Decode(input.value)
+    if (state.mode === 'b64') {
+      output.value = dir === 'enc' ? base64Encode(state.input) : base64Decode(state.input)
     } else {
-      output.value = dir === 'enc' ? encodeURIComponent(input.value) : decodeURIComponent(input.value)
+      output.value = dir === 'enc' ? encodeURIComponent(state.input) : decodeURIComponent(state.input)
     }
   } catch (e) {
     error.value = (e as Error).message || '转换失败'
@@ -34,13 +42,13 @@ function run(dir: 'enc' | 'dec') {
   <div class="flex flex-col gap-3">
     <h2 class="text-base font-semibold tracking-tight">Base64 / URL 编解码</h2>
     <div class="tabs tabs-box tabs-sm w-fit">
-      <button class="tab" :class="{ 'tab-active': mode === 'b64' }" @click="switchMode('b64')">Base64</button>
-      <button class="tab" :class="{ 'tab-active': mode === 'url' }" @click="switchMode('url')">URL</button>
+      <button class="tab" :class="{ 'tab-active': state.mode === 'b64' }" @click="switchMode('b64')">Base64</button>
+      <button class="tab" :class="{ 'tab-active': state.mode === 'url' }" @click="switchMode('url')">URL</button>
     </div>
     <textarea
-      v-model="input"
+      v-model="state.input"
       rows="6"
-      :placeholder="mode === 'b64' ? '输入明文或 Base64 字符串' : '输入文本或 URL 编码字符串'"
+      :placeholder="state.mode === 'b64' ? '输入明文或 Base64 字符串' : '输入文本或 URL 编码字符串'"
       class="textarea textarea-bordered font-mono"
     />
     <div class="flex gap-2">
