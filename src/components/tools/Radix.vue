@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { radixConvert } from '../../tools/radix'
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
+import { watchDebounced } from '../../composables/useDebounce'
 
 const bases = Array.from({ length: 35 }, (_, i) => i + 2)
 
@@ -18,19 +19,38 @@ const output = ref('')
 const error = ref('')
 const { copied, copy } = useCopy()
 
-function run() {
+/** 实时式(FE3):输入即出结果、变化即失效旧结果;150ms 防抖收敛连续击键 */
+function run(): void {
   error.value = ''
   output.value = ''
+  if (!state.input.trim()) return
   try {
     output.value = radixConvert(state.input, state.from, state.to)
   } catch (e) {
     error.value = (e as Error).message || '转换失败'
   }
 }
+
+function recomputeNow(): void {
+  runner.flush()
+}
+
+const runner = watchDebounced([() => state.input, () => state.from, () => state.to], run)
+
+/** 清空输入立即失效旧结果,不等防抖窗口 */
+watch(
+  () => state.input,
+  (v) => {
+    if (v !== '') return
+    runner.cancel()
+    output.value = ''
+    error.value = ''
+  },
+)
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
     <h2 class="text-base font-semibold tracking-tight">进制转换</h2>
     <input v-model="state.input" placeholder="如 ff(十六进)、1010(二进)或 42(十进制)" class="input input-sm font-mono" />
     <div class="flex items-center gap-2">
@@ -41,7 +61,7 @@ function run() {
       <select v-model="state.to" class="select select-sm w-28">
         <option v-for="b in bases" :key="b" :value="b">{{ b }} 进制</option>
       </select>
-      <button class="btn btn-sm btn-primary" @click="run">转换</button>
+      <span class="text-xs opacity-50">输入后实时转换,Ctrl+Enter 立即重算</span>
     </div>
     <p v-if="error" class="text-error text-sm">{{ error }}</p>
     <div v-if="output" class="flex items-start gap-2">
