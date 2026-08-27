@@ -13,7 +13,12 @@ function b64url(obj: unknown): string {
 
 /** 固定 exp 的样例 token(未来/过去,断言与时钟弱耦合) */
 function makeToken(payload: Record<string, unknown>): string {
-  return `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url(payload)}.sig`
+  return makeHeaderToken('HS256', payload)
+}
+
+/** 指定 header.alg 的样例 token */
+function makeHeaderToken(alg: string, payload: Record<string, unknown> = { sub: 'u' }): string {
+  return `${b64url({ alg, typ: 'JWT' })}.${b64url(payload)}.sig`
 }
 
 beforeEach(() => {
@@ -69,5 +74,53 @@ describe('JwtParser 实时式交互(FE3)', () => {
     await w.find('textarea').trigger('keydown.ctrl.enter')
     await nextTick()
     expect(w.text()).toContain('u2')
+  })
+})
+
+describe('JwtParser alg 安全徽章与人性化时间(FE6)', () => {
+  it('安全算法显示安全徽章,且始终提示未验签', async () => {
+    vi.useFakeTimers()
+    const w = mount(JwtParser)
+    await w.find('textarea').setValue(makeToken({ sub: 'u1' }))
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('安全算法 HS256')
+    expect(w.text()).toContain('未验签')
+  })
+
+  it('none 算法给危险级徽章(含空签名段)', async () => {
+    vi.useFakeTimers()
+    const w = mount(JwtParser)
+    await w.find('textarea').setValue(`${b64url({ alg: 'none', typ: 'JWT' })}.${b64url({ sub: 'u' })}.`)
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('危险算法 none')
+    expect(w.text()).toContain('签名为空')
+  })
+
+  it('大小写不符或未知算法降级为可疑徽章', async () => {
+    vi.useFakeTimers()
+    const w = mount(JwtParser)
+    await w.find('textarea').setValue(makeHeaderToken('hs256'))
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('可疑算法')
+    await w.find('textarea').setValue(makeHeaderToken('FAKE999'))
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('可疑算法 FAKE999')
+  })
+
+  it('iat/exp 人性化双显:绝对 ISO + 相对时间', async () => {
+    vi.useFakeTimers()
+    const w = mount(JwtParser)
+    // 固定过去时刻(2023-11-14T22:13:20Z),相对时间恒为「…前」
+    await w.find('textarea').setValue(makeToken({ iat: 1700000000, exp: 4102444800 }))
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('2023-11-14T22:13:20Z')
+    expect(w.text()).toMatch(/iat[^\n]*前/)
+    expect(w.text()).toContain('2100-01-01T00:00:00Z')
+    expect(w.text()).toMatch(/exp[^\n]*后/)
   })
 })
