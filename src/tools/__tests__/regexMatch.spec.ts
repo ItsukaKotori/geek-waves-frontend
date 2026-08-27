@@ -189,6 +189,18 @@ describe('regexMatch:expandReplacement', () => {
     expect(expandReplacement(text, [ms[0]!], '$999').output).toBe('$999z')
   })
 
+  it('$00 全零两位:原生为整体字面量回显,不得崩溃', () => {
+    const text = 'abz'
+    const ms = scan('(a)(b)', '', 'ab')
+    expect(expandReplacement(text, ms, '$00').output).toBe('$00z')
+    expect(expandReplacement(text, ms, 'A$00B').output).toBe('A$00Bz')
+    // totalGroups=0(无捕获组):此前 nn=0<=0 通过守卫导致 groups[-1] TypeError 的回归场景
+    const g0 = scan('x', '', 'pre x mid x end')
+    expect(g0[0]?.groups).toHaveLength(0)
+    expect(expandReplacement('pre x mid x end', [g0[0]!], 'A$00B').output).toBe('pre A$00B mid x end')
+    expect(() => expandReplacement(text, ms, '$00')).not.toThrow()
+  })
+
   it('replacedCount 等于参与替换的匹配数', () => {
     const r = expandReplacement('a1b2c3', scan('\\d', '', 'a1b2c3'), '#')
     expect(r.output).toBe('a#b#c#')

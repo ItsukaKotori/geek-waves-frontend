@@ -222,7 +222,8 @@ export function expandReplacement(
         num <= rec.groups.length ? rec.groups[num - 1]!.value : ''
       if (template[i + 2] >= '0' && template[i + 2] <= '9') {
         const nn = Number(template.slice(i + 1, i + 3))
-        if (nn <= totalGroups) {
+        // nn>0 必要:$00 的 Number('00')=0 会越过 ≤totalGroups 守卫并索引 groups[-1] 崩溃;原生为字面量回显
+        if (nn > 0 && nn <= totalGroups) {
           tokens.push({ raw: template.slice(i, i + 3), resolve: (rec) => groupVal(rec, nn) })
           i += 2
         } else {
