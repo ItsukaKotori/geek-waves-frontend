@@ -3,6 +3,7 @@ import {
   MATCH_COUNT_LIMIT,
   TEXT_CHAR_LIMIT,
   buildRenderLeaves,
+  computePositions,
   expandReplacement,
   lineColOf,
   scanMatches,
@@ -176,10 +177,44 @@ describe('regexMatch:expandReplacement', () => {
     expect(out).toBe("A-<A-|-C>-C")
   })
 
+  it('$n 越界回显字面量、两位数部分组回退(JS 原生对齐)', () => {
+    const text = 'abz'
+    const ms = scan('(a)(b)', '', 'ab')
+    expect(expandReplacement(text, ms, '$14').output).toBe('a4z') // 组1 + 遗留字面量 4,尾部间隙保留
+    expect(expandReplacement(text, ms, '$10').output).toBe('a0z')
+    expect(expandReplacement(text, ms, '$98').output).toBe('$98z') // 首位也越界:仅 $ 字面,数字自然回显
+    expect(expandReplacement(text, ms, '$5').output).toBe('$5z')
+    expect(expandReplacement(text, ms, '$01').output).toBe('az') // Number('01')=1 ≤ 总组数 → 组1
+    expect(expandReplacement(text, ms, '$0x').output).toBe('$0xz')
+    expect(expandReplacement(text, [ms[0]!], '$999').output).toBe('$999z')
+  })
+
   it('replacedCount 等于参与替换的匹配数', () => {
     const r = expandReplacement('a1b2c3', scan('\\d', '', 'a1b2c3'), '#')
     expect(r.output).toBe('a#b#c#')
     expect(r.replacedCount).toBe(3)
+  })
+})
+
+describe('regexMatch:computePositions(单调单趟位置批量计算)', () => {
+  it('与逐条 lineColOf 结果完全一致(多行/LF)', () => {
+    const text = 'row1 alpha\nrow2 beta gamma\nrow3\ndelta'
+    const ms = scan('alpha|beta|gamma|delta|row3', '', text)
+    const batch = computePositions(text, ms)
+    expect(batch).toEqual(ms.map((m) => lineColOf(text, m.start)))
+  })
+
+  it('与逐条 lineColOf 结果完全一致(CRLF 与同刻多匹配)', () => {
+    const text = 'a\r\nbb cc\r\nc'
+    const ms = scan('c|cc|\\w+', '', text)
+    const batch = computePositions(text, ms)
+    expect(batch).toEqual(ms.map((m) => lineColOf(text, m.start)))
+    expect(batch.every((p) => p.line >= 1 && p.column >= 1)).toBe(true)
+  })
+
+  it('空记录返回空数组;退化单条与 lineColOf 相等', () => {
+    expect(computePositions('any', [])).toEqual([])
+    expect(computePositions('hello', [{ start: 4 } as RegexMatchRecord])).toEqual([{ line: 1, column: 5 }])
   })
 })
 

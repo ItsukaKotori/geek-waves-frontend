@@ -162,6 +162,8 @@ export function expandReplacement(
   records: readonly RegexMatchRecord[],
   template: string,
 ): { output: string; replacedCount: number } {
+  // 组数为模式常量(各记录等长);0 时所有 $n 均按越界字面量回显
+  const totalGroups = records.reduce((mx, r) => Math.max(mx, r.groups.length), 0)
   const tokens: ReplacementToken[] = []
   for (let i = 0; i < template.length; i++) {
     const ch = template[i]
@@ -212,33 +214,35 @@ export function expandReplacement(
       continue
     }
     if (next >= '0' && next <= '9') {
-      // $0 非法(JS 同语义);两位数字优先作为完整组号(组数足够时)
-      let digits: string | null = null
-      let consumed = 0
+      // $n 语义严格对齐 JS 原生 GetSubstitution:
+      // - 两位候选(含前导零,如 $01)取值 ≤ 总组数时命中该组,消费 $+2
+      // - 候选越界但首位数字 ≤ 总组数:按一位数命中组号,第二位留作普通文本('$29'→组2+'9')
+      // - 全部越界:仅输出 '$' 字面量('$98'→'$98','$5'→'$5');$0 同此
+      const groupVal = (rec: RegexMatchRecord, num: number): string =>
+        num <= rec.groups.length ? rec.groups[num - 1]!.value : ''
       if (template[i + 2] >= '0' && template[i + 2] <= '9') {
-        const two = Number(template.slice(i + 1, i + 3))
-        if (two > 0 && two <= 99) {
-          digits = String(two)
-          consumed = 2
+        const nn = Number(template.slice(i + 1, i + 3))
+        if (nn <= totalGroups) {
+          tokens.push({ raw: template.slice(i, i + 3), resolve: (rec) => groupVal(rec, nn) })
+          i += 2
+        } else {
+          const first = Number(next)
+          if (first <= totalGroups && first > 0) {
+            tokens.push({ raw: template.slice(i, i + 2), resolve: (rec) => groupVal(rec, first) })
+            i += 1
+          } else {
+            tokens.push({ raw: '$' })
+          }
         }
-      }
-      if (digits === null) {
+      } else {
         const one = Number(next)
-        if (one > 0) {
-          digits = next
-          consumed = 1
+        if (one <= totalGroups && one > 0) {
+          tokens.push({ raw: template.slice(i, i + 2), resolve: (rec) => groupVal(rec, one) })
+          i += 1
+        } else {
+          tokens.push({ raw: '$' })
         }
       }
-      if (digits === null) {
-        tokens.push({ raw: '$' })
-        continue
-      }
-      const num = Number(digits)
-      tokens.push({
-        raw: template.slice(i, i + 1 + consumed),
-        resolve: (rec) => (num <= rec.groups.length ? rec.groups[num - 1]!.value : ''),
-      })
-      i += consumed
       continue
     }
     tokens.push({ raw: '$' })
@@ -275,6 +279,29 @@ export interface RenderLeaf {
   groupNumbers: number[]
 }
 
+/** 批量版 lineColOf:记录 start 单调递增时按间隙增量推进,整体 O(text) 单趟而非 O(records×text) */
+export function computePositions(
+  text: string,
+  records: readonly Pick<RegexMatchRecord, 'start'>[],
+): { line: number; column: number }[] {
+  const out: { line: number; column: number }[] = []
+  let cursor = 0
+  let line = 1
+  let lineStart = 0
+  for (const rec of records) {
+    const idx = Math.max(cursor, Math.min(rec.start, text.length))
+    for (let k = cursor; k < idx; k++) {
+      if (text[k] === '\n') {
+        line++
+        lineStart = k + 1
+      }
+    }
+    cursor = idx
+    out.push({ line, column: idx - lineStart + 1 })
+  }
+  return out
+}
+
 /** 把扫描记录切割成互不重叠的渲染叶子;叶子拼接恰还原原文 */
 export function buildRenderLeaves(text: string, records: readonly RegexMatchRecord[]): RenderLeaf[] {
   const points = new Set<number>([0, text.length])
@@ -290,11 +317,15 @@ export function buildRenderLeaves(text: string, records: readonly RegexMatchReco
   }
   const sorted = [...points].sort((a, b) => a - b)
   const leaves: RenderLeaf[] = []
+  // 叶子按 start 单调且记录区间互不重叠递增:归属查找用前向推进指针,避免每叶 O(records) 扫描
+  let rIdx = 0
   for (let i = 0; i < sorted.length; i++) {
     const start = sorted[i]!
     const end = sorted[i + 1]
     if (end === undefined || end <= start) continue
-    const owner = records.findIndex((r) => start >= r.start && end <= r.end)
+    while (rIdx < records.length && records[rIdx]!.end <= start) rIdx++
+    const owner =
+      rIdx < records.length && records[rIdx]!.start <= start && end <= records[rIdx]!.end ? rIdx : -1
     const groupNumbers =
       owner === -1
         ? []
