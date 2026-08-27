@@ -3,8 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import RegexMatch from '../RegexMatch.vue'
+import componentSource from '../RegexMatch.vue?raw'
 import type { RegexOkPayload, RegexRunOutcome } from '../regexMatchClient'
 import { scanMatches, truncateInput } from '../../../tools/regexMatch'
+
+const styleSource = /<style[^>]*>([\s\S]*?)<\/style>/.exec(componentSource)?.[1] ?? ''
 
 const DEBOUNCE = 150
 
@@ -203,6 +206,49 @@ describe('RegexMatch 重做(FE4):替换预览 / 预设 / 护栏提示', () => {
     await settleAll()
     expect(w.text()).toContain('灾难性回溯')
     expect(w.text()).not.toContain('共 ')
+  })
+
+  it('清空正则后到达的在途结果不得复活 stale 输出', async () => {
+    let resolveRun!: (o: RegexRunOutcome) => void
+    fakeRun = vi.fn(() => new Promise<RegexRunOutcome>((res) => (resolveRun = res)))
+    const w = mount(RegexMatch)
+    await fill(w, '\\d+', 'a1b2')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await flushPromisesAndTick()
+    expect((fakeRun as Mock).mock.calls.length).toBeGreaterThan(0)
+
+    // 立即复位(空闲态):计数、busy 均清
+    await w.findAll('input').at(0)!.setValue('')
+    await nextTick()
+    expect(w.text()).not.toContain('共 ')
+
+    // 此刻此前派发的请求才回流:不得把 stale 结果重新画出来
+    resolveRun({
+      kind: 'ok',
+      payload: {
+        matches: scanMatches('\\d+', 'g', 'a1b2').matches,
+        capped: false,
+        truncated: false,
+        originalLength: 4,
+      },
+    })
+    await flushPromisesAndTick()
+    expect(w.find('[data-testid^="match-row-"]').exists()).toBe(false)
+    expect(w.text()).not.toContain('共 ')
+    expect(w.text()).not.toContain('计算中')
+  })
+
+  it('hover 联动样式有真实 CSS 定义(scoped style 源包含规则)', async () => {
+    expect(styleSource).toContain('.rgx-active')
+    expect(styleSource).toContain('.rgx-has-group')
+    // 冒烟:hover 后类切换依旧成立
+    const w = mount(RegexMatch)
+    await fill(w, '\\d+', 'v11 w22')
+    await settleAll()
+    const row0 = w.find('[data-testid="match-row-0"]')
+    await row0.trigger('mouseenter')
+    await nextTick()
+    expect(w.findAll('.rgx-seg.rgx-active').length).toBeGreaterThan(0)
   })
 })
 

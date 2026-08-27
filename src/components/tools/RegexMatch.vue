@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import {
   FLAG_CHARS,
   GROUP_STRIPE_COLORS,
@@ -7,8 +7,8 @@ import {
   MATCH_TINTS,
   TEXT_CHAR_LIMIT,
   buildRenderLeaves,
+  computePositions,
   expandReplacement,
-  lineColOf,
   type FlagChar,
   type RegexMatchRecord,
   type RenderLeaf,
@@ -41,6 +41,10 @@ const FLAG_TIPS: Record<FlagChar, string> = {
 const flagString = computed(() => FLAG_CHARS.filter((f) => flagsOn.value[f]).join(''))
 
 const client = createRegexClient()
+/** 组件真实卸载(或 HMR)时释放 Worker;KeepAlive 缓存不触发,资源域一致性兜底 */
+onScopeDispose(() => {
+  client.dispose()
+})
 
 function resetOutputs(): void {
   okPayload.value = null
@@ -51,6 +55,8 @@ function resetOutputs(): void {
 function routeOutcome(outcome: RegexRunOutcome): void {
   if (outcome.kind === 'superseded') return
   busy.value = false
+  // 立即复位(正则已清空)之后才回流的结果视为 stale,不得复活任何输出
+  if (pattern.value.trim() === '') return
   switch (outcome.kind) {
     case 'ok':
       okPayload.value = outcome.payload
@@ -130,7 +136,8 @@ const groupColumns = computed<GroupColumn[]>(() =>
   })),
 )
 
-const rowPositions = computed(() => records.value.map((r) => lineColOf(baseText.value, r.start)))
+/** 行列位置:单调单趟批量计算(此前逐条 lineColOf 在万级记录 × 20 万字符下会拖垮主线程) */
+const rowPositions = computed(() => computePositions(baseText.value, records.value))
 
 function segStyle(leaf: RenderLeaf): Record<string, string> {
   if (leaf.matchOrdinal === null) return {}
@@ -179,6 +186,19 @@ const replacementOut = computed(() => {
 .rgx-view {
   max-height: 18rem;
   overflow: auto;
+}
+
+/* 捕获组叶子(带条纹)与整体匹配体分开定义联动观感 */
+.rgx-seg-match.rgx-active,
+.rgx-has-group.rgx-active {
+  outline: 2px solid #7c3aed;
+  outline-offset: -1px;
+  border-radius: 3px;
+}
+
+/* 纯匹配体(无捕获组包裹)hover 时底色增强以示「整条命中」 */
+.rgx-seg-match.rgx-active:not(.rgx-has-group) {
+  filter: brightness(0.82) saturate(1.6);
 }
 </style>
 
@@ -242,7 +262,7 @@ const replacementOut = computed(() => {
         ><template v-for="(leaf, i) in leaves" :key="i"><span
           v-if="leaf.matchOrdinal !== null"
           class="rgx-seg rgx-seg-match rounded-sm px-[1px]"
-          :class="{ 'rgx-active': hoveredOrdinal === leaf.matchOrdinal }"
+          :class="{ 'rgx-active': hoveredOrdinal === leaf.matchOrdinal, 'rgx-has-group': leaf.groupNumbers.length > 0 }"
           :style="segStyle(leaf)"
           @mouseenter="markHovered(leaf.matchOrdinal)"
         >{{ leaf.text }}</span><template v-else>{{ leaf.text }}</template></template></pre>
