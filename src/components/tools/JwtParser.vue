@@ -1,26 +1,40 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { parseJwt, type ParsedJwt } from '../../tools/jwt'
 import { useCopy } from '../../composables/useCopy'
+import { watchDebounced } from '../../composables/useDebounce'
 
 const token = ref('')
 const parsed = ref<ParsedJwt | null>(null)
 const error = ref('')
 const { copied, copy } = useCopy()
 
-function run() {
+/** 实时式(FE3):输入即出结果、变化即失效旧结果;150ms 防抖收敛连续击键 */
+function run(): void {
   error.value = ''
   parsed.value = null
-  if (!token.value.trim()) {
-    error.value = '请输入 JWT token'
-    return
-  }
+  if (!token.value.trim()) return
   try {
     parsed.value = parseJwt(token.value.trim())
   } catch (e) {
     error.value = (e as Error).message || 'JWT 解析失败'
   }
 }
+
+function recomputeNow(): void {
+  runner.flush()
+}
+
+const runner = watchDebounced([token], run)
+
+/** 清空输入立即失效旧解析结果,不等防抖窗口 */
+watch(token, (v) => {
+  if (!v.trim()) {
+    runner.cancel()
+    parsed.value = null
+    error.value = ''
+  }
+})
 
 const leftover = computed(() => {
   const exp = parsed.value?.exp
@@ -43,7 +57,7 @@ const fullText = computed(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
     <h2 class="text-base font-semibold tracking-tight">JWT 解析</h2>
     <textarea
       v-model="token"
@@ -52,10 +66,10 @@ const fullText = computed(() => {
       class="textarea textarea-bordered font-mono"
     />
     <div class="flex gap-2">
-      <button class="btn btn-sm btn-primary" @click="run">解析</button>
       <button v-if="parsed" class="btn btn-sm btn-ghost" @click="copy(fullText)">
         {{ copied ? '已复制' : '复制' }}
       </button>
+      <span v-else class="self-center text-xs opacity-50">输入后实时解析,Ctrl+Enter 立即重算</span>
     </div>
     <p v-if="error" class="text-error text-sm">{{ error }}</p>
 
