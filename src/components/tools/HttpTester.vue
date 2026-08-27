@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { httpRequest } from '../../api/toolsApi'
 import type { HttpResult } from '../../types'
+import ErrorBanner from '../ui/ErrorBanner.vue'
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
 import {
@@ -246,7 +247,7 @@ function copyOriginalBody(): void {
       <span class="text-xs opacity-50">点击条目回填参数(body 超过 2000 字符的部分不会入史)</span>
     </section>
 
-    <div v-if="error" class="rounded-box border border-error/30 bg-error/5 px-4 py-2.5 text-sm text-error">{{ error }}</div>
+    <ErrorBanner v-if="error" :message="error" dismissible @close="error = ''" />
 
     <div v-if="result">
       <div class="mockup-code max-h-96 overflow-auto text-sm">

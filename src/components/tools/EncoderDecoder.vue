@@ -7,6 +7,7 @@ import {
   hexDecode,
 } from '../../tools/encodeDecode'
 import { parseDataUrl, sniffImageSize, type ImageSize } from '../../tools/imageInfo'
+import ErrorBanner from '../ui/ErrorBanner.vue'
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
@@ -133,9 +134,7 @@ watch(
         <p>大小:<span class="font-mono">{{ preview.bytes }} 字节</span>(Base64 约 {{ Math.ceil((preview.bytes * 4) / 3) }} 字符)</p>
       </div>
     </div>
-    <div v-if="decodedError" class="rounded-box border border-error/30 bg-error/5 px-4 py-2.5 text-sm text-error">
-      {{ decodedError }}
-    </div>
+    <ErrorBanner v-if="decodedError" :message="decodedError" />
     <section v-if="encoded || decoded || decodedError" class="flex flex-col gap-3">
       <div>
         <h3 class="pb-1 text-sm font-semibold opacity-80">编码 → {{ MODE_LABELS[state.mode] }}</h3>
