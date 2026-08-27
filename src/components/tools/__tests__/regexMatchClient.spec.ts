@@ -146,6 +146,21 @@ describe('regexMatchClient:Worker 编排', () => {
     expect(FakeWorker.instances[0]!.terminated).toBe(true)
   })
 
+  it('顺序多次独立运行复用同一个健康 Worker(不按次泄漏线程)', async () => {
+    const client = createRegexClient(factory)
+    for (let i = 0; i < 3; i++) {
+      const p = client.run({ pattern: 'x', flags: '', text: `run-${i}` })
+      await flushMicrotasks()
+      const live = FakeWorker.instances.at(-1)!
+      expect(live.terminated).toBe(false)
+      expect(lastRequest(live).text).toBe(`run-${i}`)
+      live.reply({ ok: true, matches: [], capped: false, truncated: false, originalLength: 6 })
+      await expect(p).resolves.toMatchObject({ kind: 'ok' })
+    }
+    expect(FakeWorker.instances.length).toBe(1)
+    client.dispose()
+  })
+
   /** 真实时钟冒烟:护栏是挂钟 1s 级别,而非仅 fake timer 语义 */
   it('(real timers)挂起请求约 1s 后被 terminate', async () => {
     vi.useRealTimers()

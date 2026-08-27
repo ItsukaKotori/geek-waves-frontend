@@ -120,10 +120,11 @@ export function createRegexClient(factory: WorkerFactory = defaultWorkerFactory)
     seq++
     const id = seq
     if (pending !== null || guardTimer !== undefined) {
-      // 在途未完成:旧 Worker 必须终止(同步回溯无法软取消),重建后派发最新快照
+      // 在途未完成:旧 Worker 必须终止(同步回溯无法软取消),随后换新实例派发最新快照
       killPending(true)
     }
-    worker = spawn()
+    // 健康存活的 Worker 复用(Safari/iOS 并发 Worker 上限低,按次重建会耗尽配额)
+    if (worker === null) worker = spawn()
     const promise = new Promise<RegexRunOutcome>((resolve) => {
       pending = { id, resolve }
     })
