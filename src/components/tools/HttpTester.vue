@@ -60,7 +60,7 @@ async function send() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="send">
     <h2 class="text-base font-semibold tracking-tight">HTTP 接口测试</h2>
     <div class="flex gap-2">
       <select v-model="method" class="select select-sm w-28">
@@ -71,6 +71,7 @@ async function send() {
         {{ loading ? '发送中…' : '发送' }}
       </button>
     </div>
+    <span class="text-xs opacity-50">Ctrl+Enter 快捷发送;HTTP 请求保持显式触发,不随输入自动发送</span>
     <p class="text-xs opacity-60">
       示例:https://example.com。后端 SSRF 守卫会拦截 localhost/内网地址,请使用公网 URL(返回 403 即被拦截)。
     </p>
