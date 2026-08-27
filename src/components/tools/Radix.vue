@@ -45,23 +45,31 @@ const error = ref('')
 /** 编辑源:最后被操作的行。初始取持久化的 input/from(旧数据无缝接管)。 */
 const pending = ref({ base: state.from, text: state.input })
 
-/** 实时式(FE3/FE6):任一进制行输入即联动其余全部行;150ms 防抖收敛连续击键 */
+/** 由源进制反推行 id(自定义基数恒为 'custom',与 rows 定义一致) */
+function rowIdForBase(base: number): string {
+  return STANDARD_BASES.includes(base) ? `b${base}` : 'custom'
+}
+
+/** 实时式(FE3/FE6):任一进制行输入即联动其余全部行;150ms 防抖收敛连续击键。
+ *  FE3 约定:失效只作用于输出,绝不动正在编辑的输入(防击键被吞),故跳过 pending 行。 */
 function run(): void {
   error.value = ''
-  const current = rows.value.map((r) => r)
+  const editingId = rowIdForBase(pending.value.base)
+  const others = rows.value.filter((r) => r.id !== editingId)
   const src = pending.value.text.trim()
   if (!src) {
-    for (const r of current) rowTexts[r.id] = ''
+    for (const r of rows.value) rowTexts[r.id] = ''
     return
   }
   try {
     const parsed = radixParse(pending.value.text, pending.value.base)
-    for (const r of current) {
+    // 合法路径同样保留编辑行原文('+' 前缀/大小写/前导零/分组空格不被重写)
+    for (const r of others) {
       rowTexts[r.id] = radixFormat(parsed, r.base, { group: state.group })
     }
   } catch (e) {
-    // 非法输入清空其余行,避免陈旧数值与新输入错配
-    for (const r of current) rowTexts[r.id] = ''
+    // 非法输入仅清空其余行,避免陈旧数值与新输入错配;错误经统一出口展示
+    for (const r of others) rowTexts[r.id] = ''
     error.value = (e as Error).message || '转换失败'
   }
 }
