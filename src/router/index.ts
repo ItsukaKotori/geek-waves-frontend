@@ -29,6 +29,12 @@ const router = createRouter({
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),
         },
+        {
+          // 404 兜底:未知深链仍走 MainLayout 布局,渲染 NotFoundView
+          path: '/:pathMatch(.*)*',
+          name: 'not-found',
+          component: () => import('../views/NotFoundView.vue'),
+        },
       ],
     },
   ],
