@@ -6,60 +6,94 @@ import Radix from '../Radix.vue'
 
 const DEBOUNCE = 150
 
-const outText = (w: ReturnType<typeof mount>) => {
-  const pre = w.find('pre')
-  return pre.exists() ? pre.text() : ''
-}
-
-/** 默认 from=10→to=16;统一改为 16 进制输入 → 10 进制输出便于断言 */
-async function setBases(w: ReturnType<typeof mount>): Promise<void> {
-  await w.findAll('select')[0].setValue('16')
-  await w.findAll('select')[1].setValue('10')
-}
+const decInput = (w: ReturnType<typeof mount>) => w.find('input[aria-label="10 进制"]')
+const binInput = (w: ReturnType<typeof mount>) => w.find('input[aria-label="2 进制"]')
+const octInput = (w: ReturnType<typeof mount>) => w.find('input[aria-label="8 进制"]')
+const hexInput = (w: ReturnType<typeof mount>) => w.find('input[aria-label="16 进制"]')
+const customInput = (w: ReturnType<typeof mount>) => w.find('input[aria-label="自定义进制"]')
 
 beforeEach(() => {
   localStorage.clear()
 })
 
-describe('Radix 实时式交互(FE3)', () => {
-  it('输入变化后 ≤150ms 内结果更新,期间无陈旧/抢先结果', async () => {
+describe('Radix 多进制同显(FE6)', () => {
+  it('十进制输入后 ≤150ms 内 2/8/16 同步显示', async () => {
     vi.useFakeTimers()
     const w = mount(Radix)
-    await setBases(w)
-    await w.find('input').setValue('ff')
+    await decInput(w).setValue('255')
     await vi.advanceTimersByTimeAsync(DEBOUNCE - 1)
     await nextTick()
-    expect(outText(w)).toBe('')
+    expect(hexInput(w).element.value).toBe('')
     await vi.advanceTimersByTimeAsync(1)
     await nextTick()
-    expect(outText(w)).toBe('255')
+    expect(hexInput(w).element.value).toBe('ff')
+    expect(binInput(w).element.value).toBe('11111111')
+    expect(octInput(w).element.value).toBe('377')
   })
 
-  it('不再保留「转换」按钮', () => {
-    const w = mount(Radix)
-    expect(w.findAll('button').map((b) => b.text())).not.toContain('转换')
-  })
-
-  it('非法输入实时显示错误,清空立即失效', async () => {
+  it('任一进制行可作输入源:改写 16 进制驱动其余联动', async () => {
     vi.useFakeTimers()
     const w = mount(Radix)
-    await w.find('input').setValue('zz') // 默认 from=10,'z' 非法
+    await hexInput(w).setValue('ff')
     await vi.advanceTimersByTimeAsync(DEBOUNCE)
     await nextTick()
-    expect(w.text()).toContain("Invalid digit 'z'")
-    await w.find('input').setValue('')
+    expect(decInput(w).element.value).toBe('255')
+  })
+
+  it('自定义进制实时联动(32 进制)', async () => {
+    vi.useFakeTimers()
+    const w = mount(Radix)
+    await w.find('select[aria-label="自定义进制基数"]').setValue('32')
+    await decInput(w).setValue('1023')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
     await nextTick()
-    expect(outText(w)).toBe('')
+    // 1023 = 31*32+31 → 32 进制最大两位字符 vv
+    expect(customInput(w).element.value).toBe('vv')
+  })
+
+  it('大数不丢精度:MAX_SAFE_INTEGER+1 原样保留并可跨进制往返', async () => {
+    vi.useFakeTimers()
+    const w = mount(Radix)
+    await decInput(w).setValue('9007199254740993')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(decInput(w).element.value).toBe('9007199254740993')
+    expect(hexInput(w).element.value).toBe('20000000000001')
+  })
+
+  it('字节分组开关只影响展示位(hex 每字节 2 位,其他进制不受影响)', async () => {
+    vi.useFakeTimers()
+    const w = mount(Radix)
+    await decInput(w).setValue('3735928559')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await w.find('input[type="checkbox"]').setValue(true)
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(hexInput(w).element.value).toBe('de ad be ef')
+    // 十进制不是 2 幂进制,分组选项不改变其展示
+    expect(decInput(w).element.value).toBe('3735928559')
+  })
+
+  it('非法输入报错并清空其余行,清空输入立即失效旧结果', async () => {
+    vi.useFakeTimers()
+    const w = mount(Radix)
+    await decInput(w).setValue('1a') // 十进制里 'a' 非法
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain("Invalid digit")
+    expect(hexInput(w).element.value).toBe('')
+    await decInput(w).setValue('')
+    await nextTick()
     expect(w.text()).not.toContain('Invalid digit')
+    expect(binInput(w).element.value).toBe('')
   })
 
   it('Ctrl+Enter 立即冲刷计算(不等防抖)', async () => {
     vi.useFakeTimers()
     const w = mount(Radix)
-    await setBases(w)
-    await w.find('input').setValue('ff')
-    await w.find('input').trigger('keydown.ctrl.enter')
+    await decInput(w).setValue('255')
+    await w.find('.tool-root').trigger('keydown.ctrl.enter')
     await nextTick()
-    expect(outText(w)).toBe('255')
+    expect(hexInput(w).element.value).toBe('ff')
   })
 })
