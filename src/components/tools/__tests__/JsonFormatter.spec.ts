@@ -1,62 +1,110 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import JsonFormatter from '../JsonFormatter.vue'
 
-const textOf = (w: ReturnType<typeof mount>, sel: string) => {
-  const el = w.find(sel)
-  return el.exists() ? el.text() : '(absent)'
+const DEBOUNCE = 150
+
+beforeEach(() => {
+  localStorage.clear()
+})
+
+const preText = (w: ReturnType<typeof mount>) => {
+  const pre = w.find('pre')
+  return pre.exists() ? pre.text() : ''
 }
 
-describe('JsonFormatter 组件(浏览器行为复现)', () => {
-  it('JSON → YAML 转换点击后出结果', async () => {
+async function pickTarget(w: ReturnType<typeof mount>, id: string): Promise<void> {
+  await w.find('select').setValue(id)
+}
+
+describe('JsonFormatter 实时式交互(FE3)', () => {
+  it('JSON → YAML 输入 ≤150ms 内出结果,期间无陈旧/抢先结果', async () => {
+    vi.useFakeTimers()
     const w = mount(JsonFormatter)
     await w.find('textarea').setValue('{"a":1,"b":"x"}')
-    const btn = w.findAll('button').find((b) => b.text().includes('JSON →'))
-    expect(btn).toBeTruthy()
-    await btn!.trigger('click')
-    await w.vm.$nextTick()
-    console.log('[forward] error:', textOf(w, '.text-error'), '| output:', textOf(w, 'pre').slice(0, 40))
-    expect(textOf(w, 'pre')).toContain('a: 1')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE - 1)
+    await nextTick()
+    expect(preText(w)).toBe('')
+    await vi.advanceTimersByTimeAsync(1)
+    await nextTick()
+    expect(preText(w)).toContain('a: 1')
   })
 
-  it('反向 YAML → JSON', async () => {
+  it('不再保留任何「计算」类按钮(JSON → x / 格式化 JSON 均转为实时)', () => {
     const w = mount(JsonFormatter)
-    await w.find('textarea').setValue('a: 1\nb: x\n')
+    const labels = w.findAll('button').map((b) => b.text())
+    expect(labels.some((t) => t.includes('JSON →') || t.includes('→ JSON'))).toBe(false)
+    expect(labels).not.toContain('格式化 JSON')
+    // 功能仍在:格式化输出改为实时视图(标签页),方向 ← 为选择器
+    expect(labels).toContain('←')
+  })
+
+  it('反向 YAML → JSON 实时生效', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
     const back = w.findAll('button').find((b) => b.text() === '←')
-    expect((back!.element as HTMLButtonElement).disabled).toBe(false)
     await back!.trigger('click')
-    const btn = w.findAll('button').find((b) => b.text().includes('→ JSON'))
-    await btn!.trigger('click')
-    await w.vm.$nextTick()
-    console.log('[reverse] error:', textOf(w, '.text-error'), '| output:', textOf(w, 'pre').slice(0, 40))
-    expect(JSON.parse(textOf(w, 'pre'))).toEqual({ a: 1, b: 'x' })
+    await w.find('textarea').setValue('a: 1\nb: x\n')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(JSON.parse(preText(w))).toEqual({ a: 1, b: 'x' })
   })
 
-  it('TS 单向:反向按钮被禁用', async () => {
+  it('TS 单向:反向按钮仍被禁用', async () => {
     const w = mount(JsonFormatter)
-    await w.find('select').setValue('ts')
+    await pickTarget(w, 'ts')
     await w.vm.$nextTick()
     const back = w.findAll('button').find((b) => b.text() === '←')
     expect((back!.element as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('Go 往返(组件路径)', async () => {
+  it('「格式化」视图实时美化 JSON', async () => {
+    vi.useFakeTimers()
     const w = mount(JsonFormatter)
-    await w.find('select').setValue('go')
+    const prettyTab = w.findAll('.tab').find((t) => t.text() === 'JSON 美化')
+    await prettyTab!.trigger('click')
+    await w.find('textarea').setValue('{"a":1}')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(preText(w)).toContain('"a": 1')
+  })
+
+  it('转换失败实时显示错误', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await w.find('textarea').setValue('{invalid')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(preText(w)).toBe('')
+    expect(w.find('.text-error').exists()).toBe(true)
+  })
+
+  it('Go 往返(组件路径,全程实时)', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await pickTarget(w, 'go')
     await w.find('textarea').setValue('{"a":1,"list":[1,2]}')
-    const btn = w.findAll('button').find((b) => b.text().includes('JSON →'))
-    await btn!.trigger('click')
-    await w.vm.$nextTick()
-    const go = textOf(w, 'pre')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    const go = preText(w)
     expect(go).toContain('map[string]interface{}')
-    // 结果作为输入,反向
+    // 结果作为输入,切反向实时转回 JSON
     await w.find('textarea').setValue(go)
     const back = w.findAll('button').find((b) => b.text() === '←')
     await back!.trigger('click')
-    const btn2 = w.findAll('button').find((b) => b.text().includes('→ JSON'))
-    await btn2!.trigger('click')
-    await w.vm.$nextTick()
-    expect(JSON.parse(textOf(w, 'pre'))).toEqual({ a: 1, list: [1, 2] })
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(JSON.parse(preText(w))).toEqual({ a: 1, list: [1, 2] })
+  })
+
+  it('Ctrl+Enter 立即冲刷转换(不等防抖)', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await w.find('textarea').setValue('{"k":[1,2]}')
+    await w.find('textarea').trigger('keydown.ctrl.enter')
+    await nextTick()
+    expect(preText(w)).not.toBe('')
   })
 })
