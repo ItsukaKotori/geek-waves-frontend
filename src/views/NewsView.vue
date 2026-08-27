@@ -211,7 +211,9 @@ function onAiDone(text: string) {
           <RichContent :source="current.content || current.summary || ''" mode="auto" />
         </div>
 
+        <!-- 显式 key:详情竞态切换 current 时强制重建面板,避免旧解读串扰新条目 -->
         <AiPanel
+          :key="current.id"
           class="mt-4"
           :news-id="current.id"
           :existing="current.aiSummary"
