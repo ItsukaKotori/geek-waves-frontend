@@ -73,6 +73,11 @@ export interface NewsSourceBrief {
   type: string
 }
 
+export interface FrameworkBrief {
+  id: NumLike
+  name: string
+}
+
 export interface HttpResult {
   status: NumLike
   tookMs: NumLike

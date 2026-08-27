@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { fetchNewsDetail, fetchSources, listNews, type NewsCategory } from '../api/news'
+import { fetchFrameworks, fetchNewsDetail, fetchSources, listNews, type NewsCategory } from '../api/news'
 import AiPanel from '../components/news/AiPanel.vue'
 import NewsCard from '../components/news/NewsCard.vue'
 import RichContent from '../components/RichContent.vue'
 import PageHeader from '../components/ui/PageHeader.vue'
 import UnderlineTabs from '../components/ui/UnderlineTabs.vue'
-import type { NewsItem, NewsSourceBrief } from '../types'
-import { CATEGORY_LABEL, fmtTime } from '../utils/news'
+import type { FrameworkBrief, NewsItem, NewsSourceBrief } from '../types'
+import { CATEGORY_LABEL, fmtTime, sourceOptionsForTab } from '../utils/news'
 
 type Tab = 'ALL' | NewsCategory
 
@@ -21,6 +21,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
 const tab = ref<Tab>('ALL')
 const sourceId = ref<string>('')
 const sources = ref<NewsSourceBrief[]>([])
+const frameworks = ref<FrameworkBrief[]>([])
 const records = ref<NewsItem[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -31,12 +32,18 @@ const dialogEl = ref<HTMLDialogElement | null>(null)
 
 let seq = 0
 
+const sourceOptions = computed(() => sourceOptionsForTab(tab.value, sources.value, frameworks.value))
+
 const sourceNames = computed(
   () => new Map(sources.value.map((s) => [String(s.id), s.name])),
 )
+const frameworkNames = computed(
+  () => new Map(frameworks.value.map((f) => [String(f.id), f.name])),
+)
 
+/** RELEASE 类资讯的 sourceId 是 framework_watch.id(独立 ID 空间),其余类别查资讯源 */
 function sourceNameOf(id: string | number, category?: string): string {
-  const name = sourceNames.value.get(String(id))
+  const name = (category === 'RELEASE' ? frameworkNames : sourceNames).value.get(String(id))
   if (name) return name
   return category === 'RELEASE' ? '框架关注' : `来源 #${id}`
 }
@@ -77,6 +84,11 @@ function retry() {
   void load(true)
 }
 
+// 切 tab 换选项集时,保留原选择会跨 ID 空间或指向不存在/不相关来源 → 重置
+watch(tab, () => {
+  if (!sourceOptions.value.some((o) => o.value === sourceId.value)) sourceId.value = ''
+})
+
 watch([tab, sourceId], () => {
   page.value = 1
   void load(true)
@@ -87,6 +99,11 @@ onMounted(async () => {
     sources.value = await fetchSources()
   } catch {
     sources.value = []
+  }
+  try {
+    frameworks.value = await fetchFrameworks()
+  } catch {
+    frameworks.value = []
   }
   await load(true)
 })
@@ -119,7 +136,7 @@ function onAiDone(text: string) {
       <UnderlineTabs v-model="tab" :tabs="TABS" class="min-w-0 flex-1" />
       <select v-model="sourceId" class="select select-sm w-44 border-base-300" aria-label="来源筛选">
         <option value="">全部来源</option>
-        <option v-for="s in sources" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+        <option v-for="o in sourceOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
 
@@ -181,7 +198,7 @@ function onAiDone(text: string) {
 
         <div class="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/60">
           <span class="badge badge-ghost badge-sm font-medium">{{ CATEGORY_LABEL[current.category] }}</span>
-          <span>{{ sourceNameOf(current.sourceId) || `来源 #${current.sourceId}` }}</span>
+          <span>{{ sourceNameOf(current.sourceId, current.category) || `来源 #${current.sourceId}` }}</span>
           <span v-if="current.publishedAt">· {{ fmtTime(current.publishedAt) }}</span>
           <span v-if="current.author">· {{ current.author }}</span>
           <span v-if="Number(current.score) > 0" class="badge badge-secondary badge-sm">{{ current.score }}</span>

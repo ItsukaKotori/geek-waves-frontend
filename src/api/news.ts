@@ -1,4 +1,4 @@
-import type { NewsItem, NewsSourceBrief, PageResult } from '../types'
+import type { FrameworkBrief, NewsItem, NewsSourceBrief, PageResult } from '../types'
 import { get } from './http'
 import { normalizeNewsItem, normalizePageResult } from './normalize'
 
@@ -26,4 +26,8 @@ export function fetchNewsDetail(id: string | number): Promise<NewsItem> {
 
 export function fetchSources(): Promise<NewsSourceBrief[]> {
   return get<NewsSourceBrief[]>('/news/sources')
+}
+
+export function fetchFrameworks(): Promise<FrameworkBrief[]> {
+  return get<FrameworkBrief[]>('/news/frameworks')
 }

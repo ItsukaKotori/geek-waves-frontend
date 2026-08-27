@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { CATEGORY_LABEL, fmtTime, splitTags } from '../news'
+import { CATEGORY_LABEL, fmtTime, sourceOptionsForTab, splitTags } from '../news'
+import type { NewsSourceBrief } from '../../types'
+
+const sources: NewsSourceBrief[] = [
+  { id: 1, name: 'V2EX', type: 'RSS' },
+  { id: 2, name: 'GitHub Trending', type: 'GITHUB_API' },
+  { id: 3, name: 'Linux Do', type: 'RSS' },
+]
+const frameworks = [
+  { id: 10, name: 'Spring Boot' },
+  { id: 11, name: 'Vue' },
+]
 
 describe('fmtTime', () => {
   it('有效时间返回本地化字符串', () => {
@@ -35,5 +46,30 @@ describe('CATEGORY_LABEL', () => {
     expect(CATEGORY_LABEL.NEWS).toBe('论坛资讯')
     expect(CATEGORY_LABEL.REPO).toBe('热门仓库')
     expect(CATEGORY_LABEL.RELEASE).toBe('框架更新')
+  })
+})
+
+describe('sourceOptionsForTab', () => {
+  it('全部/论坛资讯返回全部资讯源,不含框架关注', () => {
+    const all = sourceOptionsForTab('ALL', sources, frameworks)
+    expect(all).toEqual([
+      { value: '1', label: 'V2EX' },
+      { value: '2', label: 'GitHub Trending' },
+      { value: '3', label: 'Linux Do' },
+    ])
+    expect(sourceOptionsForTab('NEWS', sources, frameworks)).toEqual(all)
+  })
+
+  it('热门仓库仅返回 GitHub 类资讯源', () => {
+    expect(sourceOptionsForTab('REPO', sources, frameworks)).toEqual([
+      { value: '2', label: 'GitHub Trending' },
+    ])
+  })
+
+  it('框架更新返回框架关注列表', () => {
+    expect(sourceOptionsForTab('RELEASE', sources, frameworks)).toEqual([
+      { value: '10', label: 'Spring Boot' },
+      { value: '11', label: 'Vue' },
+    ])
   })
 })
