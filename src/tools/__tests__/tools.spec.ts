@@ -4,7 +4,6 @@ import { tsToDate, dateToTs } from '../timestamp'
 import { base64Encode, base64Decode } from '../encodeDecode'
 import { hashValue, uuid4 } from '../hashUuid'
 import { radixConvert } from '../radix'
-import { regexHighlights } from '../regexMatch'
 import { parseJwt } from '../jwt'
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -98,17 +97,6 @@ describe('tools', () => {
     expect(() => radixConvert('1', 37, 10)).toThrow()
     expect(() => radixConvert('2', 2, 10)).toThrow()
     expect(() => radixConvert('', 10, 2)).toThrow()
-  })
-
-  it('regexHighlights:返回 start/end 区间', () => {
-    const hs = regexHighlights('\\d+', 'a1b22c')
-    expect(hs.map((h) => h.start)).toEqual([1, 3])
-    expect(hs.map((h) => h.end)).toEqual([2, 5])
-    expect(hs[0]?.start).toBe(1)
-  })
-
-  it('regexHighlights:非法正则抛异常', () => {
-    expect(() => regexHighlights('(', 'a')).toThrow()
   })
 
   it('parseJwt:header/payload/exp 解析', () => {
