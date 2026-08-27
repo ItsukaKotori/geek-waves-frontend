@@ -28,11 +28,11 @@ const { state } = useToolState<RadixState>('radix', { input: '', from: 10, custo
 
 const customOptions = Array.from({ length: 35 }, (_, i) => i + 2).filter((b) => !STANDARD_BASES.includes(b))
 
-/** 4 个标准基址恒显;自定义基数合法且与标准不重复时追加一行 */
+/** 4 个标准基址恒显;自定义基数合法(2..36)且与标准不重复时追加一行 */
 const rows = computed<RowDef[]>(() => {
   const list: RowDef[] = STANDARD_BASES.map((b) => ({ id: `b${b}`, base: b, label: `${b} 进制` }))
   const c = Number(state.custom)
-  if (!STANDARD_BASES.includes(c)) {
+  if (!STANDARD_BASES.includes(c) && Number.isInteger(c) && c >= 2 && c <= 36) {
     list.push({ id: 'custom', base: c, label: `${c} 进制(自定义)` })
   }
   return list
@@ -90,11 +90,6 @@ watch(
     run()
   },
 )
-
-if (state.input.trim()) {
-  // 恢复持久化输入:立即以持久化源重算一次
-  runner.schedule()
-}
 </script>
 
 <template>
