@@ -26,7 +26,8 @@ export function base64Encode(text: string): string {
   return out
 }
 
-export function base64Decode(text: string): string {
+/** Base64 字符串 → 原始字节(容忍 URL-safe 字符,非法字符抛错);不含 UTF-8 解码 */
+export function base64DecodeBytes(text: string): Uint8Array {
   const clean = text.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '')
   if (clean === '' && text !== '') throw new Error('Invalid base64 input')
   const bytes: number[] = []
@@ -46,5 +47,44 @@ export function base64Decode(text: string): string {
       }
     }
   }
-  return new TextDecoder().decode(new Uint8Array(bytes))
+  return new Uint8Array(bytes)
+}
+
+/**
+ * fatal UTF-8 解码诊断(FE5):字节流不是合法 UTF-8 时抛出明确的
+ * 「疑似编码不符」提示,而非静默输出乱码替换符。
+ */
+export function decodeUtf8Strict(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new Error('疑似编码不符:字节序列不是有效的 UTF-8 文本')
+  }
+}
+
+export function base64Decode(text: string): string {
+  return decodeUtf8Strict(base64DecodeBytes(text))
+}
+
+const HEX_CLEAN_RE = /[\s:-]/g
+const HEX_VALID_RE = /^[0-9a-fA-F]+$/
+
+/** 文本 → UTF-8 字节 → 连续小写 hex */
+export function hexEncode(text: string): string {
+  return Array.from(new TextEncoder().encode(text))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/** hex(容忍空格/冒号/换行分隔与大小写混排)→ UTF-8 文本;奇数长度或非法字符抛错 */
+export function hexDecode(text: string): string {
+  const clean = text.replace(HEX_CLEAN_RE, '')
+  if (clean.length % 2 !== 0 || (clean !== '' && !HEX_VALID_RE.test(clean))) {
+    throw new Error('Invalid hex input:需要成对的十六进制字符')
+  }
+  const bytes = new Uint8Array(clean.length / 2)
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16)
+  }
+  return decodeUtf8Strict(bytes)
 }

@@ -77,3 +77,77 @@ describe('EncoderDecoder 实时式交互(FE3)', () => {
     expect(pres(w)[0]).toBe(base64Encode('GeekWaves'))
   })
 })
+
+describe('EncoderDecoder FE5 功能补全', () => {
+  const hexTab = (w: ReturnType<typeof mount>) =>
+    w.findAll('button').find((b) => b.classes().includes('tab') && b.text() === 'Hex')!
+
+  it('Hex 模式:编码得到 UTF-8 小写 hex 向量', async () => {
+    vi.useFakeTimers()
+    const w = mount(EncoderDecoder)
+    await hexTab(w).trigger('click')
+    await w.find('textarea').setValue('hello')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(pres(w)[0]).toBe('68656c6c6f')
+    vi.useRealTimers()
+  })
+
+  it('Hex 模式:解码容忍分隔符与大小写,输出明文', async () => {
+    vi.useFakeTimers()
+    const w = mount(EncoderDecoder)
+    await hexTab(w).trigger('click')
+    await w.find('textarea').setValue('e4:bd:a0 e5A5BD')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(pres(w)[1]).toBe('你好')
+    vi.useRealTimers()
+  })
+
+  it('Hex 模式:奇数长度给行内错误而非静默截断', async () => {
+    vi.useFakeTimers()
+    const w = mount(EncoderDecoder)
+    await hexTab(w).trigger('click')
+    await w.find('textarea').setValue('abc')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('Invalid hex')
+    vi.useRealTimers()
+  })
+
+  it('Base64 模式遇到非法 UTF-8 字节流提示「疑似编码不符」而非乱码', async () => {
+    vi.useFakeTimers()
+    const w = mount(EncoderDecoder)
+    // [0xe4,0xbd] 为被截断的多字节序列:'5Ls='
+    await w.find('textarea').setValue('5Ls=')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('疑似编码不符')
+    vi.useRealTimers()
+  })
+
+  it('dataURL 输入出现图片预览卡:mime/尺寸/大小信息', async () => {
+    vi.useFakeTimers()
+    const raw = new Uint8Array([
+      ...[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+      0, 0, 0, 13,
+      ...new TextEncoder().encode('IHDR'),
+      ...[0, 0, 0, 7], // width = 7
+      ...[0, 0, 0, 9], // height = 9
+      8, 6, 0, 0, 0,
+    ])
+    const url = `data:image/png;base64,${Buffer.from(raw).toString('base64')}`
+    const w = mount(EncoderDecoder)
+    await w.find('textarea').setValue(url)
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    const img = w.find('.image-preview img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toBe(url)
+    const text = w.text()
+    expect(text).toContain('image/png')
+    expect(text).toContain('7 × 9')
+    expect(text).toContain('字节')
+    vi.useRealTimers()
+  })
+})
