@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, type Component } from 'vue'
+import { computed, defineAsyncComponent, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/ui/PageHeader.vue'
+import { useRecentTools } from '../composables/useRecentTools'
 
 interface ToolItem {
   key: string
@@ -96,6 +97,24 @@ function selectTool(item: ToolItem): void {
   if (item.key === activeItem.value?.key) return
   void router.replace({ query: { ...route.query, tool: item.key } })
 }
+
+/** 最近使用:?tool= 直达与点击切换同源计入(query 是唯一数据源,监听即可全覆盖) */
+const { recentTools, record } = useRecentTools()
+watch(
+  () => activeItem.value?.key,
+  (toolKey) => {
+    if (toolKey) record(toolKey)
+  },
+  { immediate: true },
+)
+
+/** 仅渲染注册表仍存在的条目(注册表演化后旧脏 key 自动隐藏),保持时间倒序 */
+const TOOL_ITEM_BY_KEY = new Map(allItems.map((item) => [item.key, item]))
+const recentItems = computed(() =>
+  recentTools.value
+    .map((e) => TOOL_ITEM_BY_KEY.get(e.key))
+    .filter((item): item is ToolItem => item !== undefined),
+)
 </script>
 
 <template>
@@ -105,6 +124,25 @@ function selectTool(item: ToolItem): void {
     <div class="flex flex-col gap-6 md:flex-row md:items-start">
       <aside class="w-56 shrink-0">
         <nav class="flex flex-col gap-0.5 border-base-300 pr-4 md:border-r">
+          <template v-if="recentItems.length > 0">
+            <p class="px-3 pb-1 pt-4 text-xs font-medium uppercase tracking-wider text-base-content/50">
+              最近使用
+            </p>
+            <button
+              v-for="item in recentItems"
+              :key="`recent-${item.key}`"
+              type="button"
+              class="rounded-lg px-3 py-1.5 text-left text-sm font-medium transition-colors"
+              :class="
+                activeItem?.key === item.key
+                  ? 'bg-base-200 text-primary'
+                  : 'text-base-content/70 hover:bg-base-200/60 hover:text-base-content'
+              "
+              @click="selectTool(item)"
+            >
+              {{ item.label }}
+            </button>
+          </template>
           <template v-for="g in registry" :key="g.group">
             <p class="px-3 pb-1 pt-4 text-xs font-medium uppercase tracking-wider text-base-content/50">
               {{ g.group }}
