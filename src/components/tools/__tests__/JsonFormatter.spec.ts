@@ -37,7 +37,11 @@ describe('JsonFormatter 实时式交互(FE3)', () => {
     const labels = w.findAll('button').map((b) => b.text())
     expect(labels.some((t) => t.includes('JSON →') || t.includes('→ JSON'))).toBe(false)
     expect(labels.some((t) => t.includes('转换') || t.includes('格式化'))).toBe(true)
-    expect(w.findAll('button')).toHaveLength(4) // 视图切换 ×2 + 方向 →/←
+    // 视图切换 ×4(转换/美化/压缩/树)+ 方向 →/← = 6
+    expect(w.findAll('button')).toHaveLength(6)
+    for (const label of ['转换视图', '美化视图', '压缩视图', '树视图']) {
+      expect(labels, label).toContain(label)
+    }
   })
 
   it('反向 YAML → JSON 实时生效', async () => {
@@ -105,5 +109,98 @@ describe('JsonFormatter 实时式交互(FE3)', () => {
     await w.find('textarea').trigger('keydown.ctrl.enter')
     await nextTick()
     expect(preText(w)).not.toBe('')
+  })
+})
+
+describe('JsonFormatter FE6 补全(压缩/JSONPath/折叠树)', () => {
+  async function setInputAndRun(
+    w: ReturnType<typeof mount>,
+    v: string,
+  ): Promise<void> {
+    await w.find('textarea').setValue(v)
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+  }
+
+  const clickView = async (w: ReturnType<typeof mount>, label: string): Promise<void> => {
+    const tab = w.findAll('.tab').find((t) => t.text() === label)
+    await tab!.trigger('click')
+    await w.vm.$nextTick()
+  }
+
+  it('压缩视图实时输出单行 minify', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await clickView(w, '压缩视图')
+    await setInputAndRun(w, '{ "a": 1,\n "b": [1, 2] }')
+    expect(preText(w)).toBe('{"a":1,"b":[1,2]}')
+  })
+
+  it('JSONPath 查询实时命中(* 通配与属性链子集)', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await setInputAndRun(w, '{"book":[{"author":"A","price":8},{"author":"B","price":12}]}')
+    await w.find('input.jsonpath-input').setValue('$.book[*].author')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    const results = w.find('.jsonpath-results').text()
+    expect(results).toContain('"A"')
+    expect(results).toContain('"B"')
+    expect(w.text()).toContain('命中 2 处')
+  })
+
+  it('JSONPath 表达式非法时实时报错(不以 $ 开头 / 不支持的过滤语法)', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await setInputAndRun(w, '{"a":1}')
+    await w.find('input.jsonpath-input').setValue('a.b')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toMatch(/必须以 \$ 开头/)
+    await w.find('input.jsonpath-input').setValue('$.a[?(@.x>1)]')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toMatch(/不支持/)
+    // 清空表达式恢复空闲态
+    await w.find('input.jsonpath-input').setValue('')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.find('.jsonpath-results').exists()).toBe(false)
+  })
+
+  it('树视图默认展开浅层、深层自动折叠', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await clickView(w, '树视图')
+    await setInputAndRun(w, '{"obj":{"deep":{"leaf":"MAGIC"}},"s":"v"}')
+    const pane = w.find('.tree-pane')
+    expect(pane.exists()).toBe(true)
+    expect(pane.text()).toContain('$')
+    expect(pane.text()).toContain('obj')
+    expect(pane.text()).toContain('deep')
+    // 深层(默认展开深度之外)初始不可见
+    expect(pane.text()).not.toContain('MAGIC')
+  })
+
+  it('树视图节点可手动折叠/展开(逐层展开至叶子可见,折叠根即全部隐藏)', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await clickView(w, '树视图')
+    await setInputAndRun(w, '{"obj":{"deep":{"leaf":"MAGIC"}}}')
+    let pane = w.find('.tree-pane')
+    // 每轮点击 DOM 中最后一个展开钮(最深可见层),直至目标叶子出现
+    for (let i = 0; i < 6 && !pane.text().includes('MAGIC'); i++) {
+      const toggles = pane.findAll('button.tree-toggle')
+      if (!toggles.length) break
+      await toggles[toggles.length - 1]!.trigger('click')
+      pane = w.find('.tree-pane')
+    }
+    expect(pane.text()).toContain('MAGIC')
+    // 折叠根节点:整棵子树从行列表消失
+    const rootToggle = pane.findAll('button.tree-toggle')[0]!
+    await rootToggle.trigger('click')
+    pane = w.find('.tree-pane')
+    expect(pane.text()).not.toContain('MAGIC')
+    expect(pane.text()).not.toContain('obj')
   })
 })

@@ -1,44 +1,150 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { converters, findConverter, formatJson } from '../../tools/jsonConvert'
+import { converters, findConverter } from '../../tools/jsonConvert'
+import {
+  MAX_JSONPATH_MATCHES,
+  TREE_DEFAULT_EXPAND_DEPTH,
+  TREE_LARGE_BYTES,
+  buildJsonTree,
+  evalJsonPathText,
+  type JsonNode,
+} from '../../tools/jsonInspect'
 import { useCopy } from '../../composables/useCopy'
+import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
 
-const input = ref('')
-const targetId = ref('yaml')
-/** true: JSON → 目标格式;false: 目标格式 → JSON */
-const toJson = ref(true)
-/** 输出视图:'convert' 实时转换;'' 'pretty' 实时格式化(取代原「格式化 JSON」按钮) */
-type OutputView = 'convert' | 'pretty'
-const view = ref<OutputView>('convert')
+/** 输出视图:'convert' 实时转换;'pretty' 美化;'minify' 压缩;'tree' 折叠树 */
+type OutputView = 'convert' | 'pretty' | 'minify' | 'tree'
+
+interface JsonState {
+  input: string
+  targetId: string
+  /** true: JSON → 目标格式;false: 目标格式 → JSON */
+  toJson: boolean
+  view: OutputView
+  /** JSONPath 查询表达式(常用子集,支持范围见组件内提示与报告) */
+  pathExpr: string
+}
+
+/** 输入经 localStorage 持久化(key 与注册表一致),刷新后恢复;旧快照缺省字段回落默认值 */
+const { state } = useToolState<JsonState>('json', {
+  input: '',
+  targetId: 'yaml',
+  toJson: true,
+  view: 'convert',
+  pathExpr: '',
+})
 
 const convertOut = ref('')
 const convertErr = ref('')
 const prettyOut = ref('')
 const prettyErr = ref('')
+const minifyOut = ref('')
+/** 树根(输入非合法 JSON 时为 null)与折叠集合(按节点数字 id 记录) */
+const treeRoot = ref<JsonNode | null>(null)
+const collapsed = ref<Set<number>>(new Set())
 const { copied, copy } = useCopy()
 
-const target = computed(() => findConverter(targetId.value))
+/* ----------------------------- JSONPath 查询区 ---------------------------- */
+
+const qOut = ref('')
+const qErr = ref('')
+const qCount = ref(-1)
+const qTruncated = ref(false)
+
+function runQuery(): void {
+  qErr.value = ''
+  qOut.value = ''
+  qTruncated.value = false
+  if (!state.input.trim() || !state.pathExpr.trim()) {
+    qCount.value = -1
+    return
+  }
+  try {
+    const matches = evalJsonPathText(state.input, state.pathExpr)
+    qCount.value = matches.length
+    qTruncated.value = matches.length >= MAX_JSONPATH_MATCHES
+    qOut.value = JSON.stringify(matches, null, 2)
+  } catch (e) {
+    qCount.value = -1
+    qErr.value = (e as Error).message || '查询失败'
+  }
+}
+
+const queryRunner = watchDebounced([() => state.input, () => state.pathExpr], runQuery)
+
+/* ------------------------------- 主转换管道 -------------------------------- */
+
+const target = computed(() => findConverter(state.targetId))
 const targetLabel = computed(() => target.value?.label ?? '')
 /** TS / SQL 仅支持 JSON → 目标(生成),不支持反向解析 */
-const oneWayOnly = computed(() => ['ts', 'sql'].includes(targetId.value))
+const oneWayOnly = computed(() => ['ts', 'sql'].includes(state.targetId))
+
+/** 输出视图只读快照(写入走 state.view,保持持久化一致性) */
+const view = computed<OutputView>(() => state.view)
+/** 转换方向只读快照(写入走 state.toJson) */
+const toJson = computed(() => state.toJson)
 
 const placeholder = computed(() =>
   toJson.value ? '{"name":"GeekWaves","tags":["vue","daisyui"]}' : `${targetLabel.value} 源文本`,
 )
 
-function onTargetChange() {
-  if (oneWayOnly.value) toJson.value = true
+function clearOutputs(): void {
+  convertOut.value = ''
+  convertErr.value = ''
+  prettyOut.value = ''
+  prettyErr.value = ''
+  minifyOut.value = ''
+  treeRoot.value = null
+  collapsed.value = new Set()
 }
 
-/** 实时式(FE3):输入即出结果、变化即失效旧结果;150ms 防抖收敛连续击键 */
+function onTargetChange() {
+  if (oneWayOnly.value) state.toJson = true
+}
+
+/** 浅层展开、深层折叠的初始状态;大 JSON 除根外全折叠(TREE_LARGE_BYTES) */
+function initialCollapsed(root: JsonNode, large: boolean): Set<number> {
+  const hidden = new Set<number>()
+  const walk = (n: JsonNode): void => {
+    if (!n.children.length) return
+    const expand = large ? n.depth < 1 : n.depth < TREE_DEFAULT_EXPAND_DEPTH
+    if (!expand) hidden.add(n.id)
+    else for (const c of n.children) walk(c)
+  }
+  walk(root)
+  return hidden
+}
+
+function toggle(id: number): void {
+  const next = new Set(collapsed.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsed.value = next
+}
+
+const treeRows = computed<Array<{ node: JsonNode; indent: number }>>(() => {
+  const root = treeRoot.value
+  if (!root) return []
+  const out: Array<{ node: JsonNode; indent: number }> = []
+  const stack: Array<{ node: JsonNode; indent: number }> = [{ node: root, indent: 0 }]
+  while (stack.length) {
+    const cur = stack.pop()!
+    out.push(cur)
+    if (cur.node.children.length && !collapsed.value.has(cur.node.id)) {
+      for (let i = cur.node.children.length - 1; i >= 0; i--) {
+        stack.push({ node: cur.node.children[i]!, indent: cur.indent + 1 })
+      }
+    }
+  }
+  return out
+})
+
+/** 实时式(FE3/FE6):输入即出结果、变化即失效旧结果;150ms 防抖收敛连续击键 */
 function run(): void {
-  const src = input.value
+  const src = state.input
   if (!src.trim()) {
-    convertOut.value = ''
-    convertErr.value = ''
-    prettyOut.value = ''
-    prettyErr.value = ''
+    clearOutputs()
     return
   }
   const conv = target.value
@@ -50,33 +156,61 @@ function run(): void {
     convertErr.value = (e as Error).message || '转换失败'
   }
   try {
-    prettyOut.value = formatJson(src)
+    const parsed: unknown = JSON.parse(src)
+    prettyOut.value = JSON.stringify(parsed, null, 2)
+    minifyOut.value = JSON.stringify(parsed)
     prettyErr.value = ''
+    const root = buildJsonTree(src)
+    collapsed.value = initialCollapsed(root, src.length > TREE_LARGE_BYTES)
+    treeRoot.value = root
   } catch {
     prettyOut.value = ''
+    minifyOut.value = ''
+    treeRoot.value = null
+    collapsed.value = new Set()
     prettyErr.value = 'JSON 语法错误,无法解析'
   }
 }
 
 function recomputeNow(): void {
   runner.flush()
+  queryRunner.flush()
 }
 
-const runner = watchDebounced([input, targetId, toJson], run)
+const runner = watchDebounced([() => state.input, () => state.targetId, () => state.toJson], run)
 
-/** 清空输入立即失效旧结果,不等防抖窗口 */
-watch(input, (v) => {
-  if (v.trim() !== '') return
-  runner.cancel()
-  run()
+/** 清空输入立即失效全部结果(含查询区),不等防抖窗口 */
+watch(
+  () => state.input,
+  (v) => {
+    if (v.trim() !== '') return
+    runner.cancel()
+    queryRunner.cancel()
+    clearOutputs()
+    qOut.value = ''
+    qErr.value = ''
+    qCount.value = -1
+    qTruncated.value = false
+    run()
+  },
+)
+
+const shownOutput = computed(() => {
+  if (view.value === 'convert') return convertOut.value
+  if (view.value === 'minify') return minifyOut.value
+  return prettyOut.value
 })
 
-const shownOutput = computed(() => (view.value === 'convert' ? convertOut.value : prettyOut.value))
-const shownError = computed(() => (view.value === 'convert' ? convertErr.value : prettyErr.value))
+const shownError = computed(() => {
+  if (view.value === 'tree') return ''
+  if (view.value === 'minify') return prettyErr.value
+  // 转换视图并显两类错误(转换失败 + JSON 美化失败),便于排障
+  return [convertErr.value, prettyErr.value].find(Boolean) ?? ''
+})
 
 function swap(): void {
   if (!shownOutput.value) return
-  input.value = shownOutput.value
+  state.input = shownOutput.value
 }
 </script>
 
@@ -91,11 +225,11 @@ function swap(): void {
         class="btn btn-xs"
         :class="toJson ? 'btn-primary' : 'btn-ghost'"
         :disabled="oneWayOnly && !toJson"
-        @click="toJson = true"
+        @click="state.toJson = true"
       >
         →
       </button>
-      <select v-model="targetId" class="select select-sm w-40" @change="onTargetChange">
+      <select v-model="state.targetId" class="select select-sm w-40" @change="onTargetChange">
         <option v-for="c in converters" :key="c.id" :value="c.id">{{ c.label }}</option>
       </select>
       <button
@@ -104,33 +238,91 @@ function swap(): void {
         :class="!toJson ? 'btn-primary' : 'btn-ghost'"
         :disabled="oneWayOnly"
         :title="oneWayOnly ? `${targetLabel} 不支持反向解析` : '反向转换'"
-        @click="toJson = false"
+        @click="state.toJson = false"
       >
         ←
       </button>
       <span v-if="oneWayOnly" class="text-xs text-base-content/50">{{ targetLabel }} 仅支持 JSON → {{ targetLabel }}</span>
     </div>
 
-    <textarea v-model="input" rows="10" :placeholder="placeholder" class="textarea textarea-bordered font-mono" />
+    <textarea v-model="state.input" rows="10" :placeholder="placeholder" class="textarea textarea-bordered font-mono" />
 
     <div class="tabs tabs-box tabs-sm w-fit">
-      <button class="tab" :class="{ 'tab-active': view === 'convert' }" @click="view = 'convert'">
-        转换视图({{ targetLabel }})
+      <button class="tab" :class="{ 'tab-active': view === 'convert' }" @click="state.view = 'convert'">
+        转换视图
       </button>
-      <button class="tab" :class="{ 'tab-active': view === 'pretty' }" @click="view = 'pretty'">美化视图</button>
+      <button class="tab" :class="{ 'tab-active': view === 'pretty' }" @click="state.view = 'pretty'">美化视图</button>
+      <button class="tab" :class="{ 'tab-active': view === 'minify' }" @click="state.view = 'minify'">压缩视图</button>
+      <button class="tab" :class="{ 'tab-active': view === 'tree' }" @click="state.view = 'tree'">树视图</button>
     </div>
 
-    <div class="flex flex-wrap gap-2">
-      <button v-if="shownOutput" class="btn btn-sm btn-ghost" @click="swap">↑ 结果作为输入</button>
-      <button v-if="shownOutput" class="btn btn-sm btn-ghost" @click="copy(shownOutput)">
-        {{ copied ? '已复制' : '复制' }}
-      </button>
-      <span v-if="!shownOutput && !shownError" class="self-center text-xs opacity-50">
-        输入后实时出结果,Ctrl+Enter 立即重算
-      </span>
-    </div>
+    <template v-if="view !== 'tree'">
+      <div class="flex flex-wrap gap-2">
+        <button v-if="shownOutput" class="btn btn-sm btn-ghost" @click="swap">↑ 结果作为输入</button>
+        <button v-if="shownOutput" class="btn btn-sm btn-ghost" @click="copy(shownOutput)">
+          {{ copied ? '已复制' : '复制' }}
+        </button>
+        <span v-if="!shownOutput && !shownError" class="self-center text-xs opacity-50">
+          输入后实时出结果,Ctrl+Enter 立即重算
+        </span>
+      </div>
 
-    <p v-if="shownError" class="text-error text-sm">{{ shownError }}</p>
-    <pre v-if="shownOutput" class="max-h-96 overflow-auto whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3">{{ shownOutput }}</pre>
+      <p v-if="shownError" class="text-error text-sm">{{ shownError }}</p>
+      <pre v-if="shownOutput" class="max-h-96 overflow-auto whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3">{{ shownOutput }}</pre>
+    </template>
+
+    <template v-else>
+      <div class="flex flex-wrap gap-2">
+        <button v-if="treeRoot" class="btn btn-sm btn-ghost" @click="copy(prettyOut)">
+          {{ copied ? '已复制' : '复制' }}
+        </button>
+        <span v-if="!treeRoot" class="self-center text-xs opacity-50">输入合法 JSON 后以可折叠树展示</span>
+      </div>
+      <div
+        v-if="treeRoot"
+        class="tree-pane max-h-96 overflow-auto rounded-box border border-base-300 bg-base-200/60 p-2 font-mono text-sm"
+      >
+        <div
+          v-for="row in treeRows"
+          :key="row.node.id"
+          class="flex items-start gap-1 rounded px-1 py-0.5 hover:bg-base-100/70"
+          :style="{ paddingLeft: `${row.indent * 1.25}rem` }"
+        >
+          <button
+            v-if="row.node.childCount"
+            class="tree-toggle btn btn-xs btn-ghost h-5 min-h-0 px-1 leading-none"
+            :aria-label="`切换 ${row.node.keyLabel}`"
+            @click="toggle(row.node.id)"
+          >
+            {{ collapsed.has(row.node.id) ? '▸' : '▾' }}
+          </button>
+          <span v-else class="w-5 shrink-0" />
+          <span class="shrink-0 opacity-70">{{ row.node.keyLabel }}:</span>
+          <span class="break-all">{{ row.node.preview }}</span>
+          <span v-if="row.node.childCount" class="shrink-0 text-xs opacity-50">
+            {{ collapsed.has(row.node.id) ? '' : row.node.kind === 'array' ? '[' : '{' }}
+            {{ row.node.childCount }} 项{{ collapsed.has(row.node.id) ? '' : row.node.kind === 'array' ? ']' : '}' }}
+          </span>
+        </div>
+      </div>
+    </template>
+
+    <section class="flex flex-col gap-2 border-t border-base-300 pt-3">
+      <h3 class="text-sm font-semibold opacity-80">JSONPath 查询(常用子集)</h3>
+      <input
+        v-model="state.pathExpr"
+        aria-label="JSONPath 查询表达式"
+        placeholder="如 $.store.book[*].author、$..id、$.list[1:3]"
+        class="input input-sm jsonpath-input font-mono"
+      />
+      <p v-if="qErr" class="text-error text-sm">{{ qErr }}</p>
+      <template v-else-if="qCount >= 0">
+        <span class="text-xs opacity-60">
+          命中 {{ qCount }} 处{{ qTruncated ? '(已达上限截断)' : '' }}
+          · 支持 $ 属性链 / .* [*] 通配 / [n] 下标 / 切片 / 联合 / ..递归
+        </span>
+        <pre class="jsonpath-results max-h-72 overflow-auto whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ qOut }}</pre>
+      </template>
+    </section>
   </div>
 </template>
