@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { regexHighlights, type Highlight } from '../../tools/regexMatch'
+import { watchDebounced } from '../../composables/useDebounce'
 
 const pattern = ref('')
 const flags = ref('')
@@ -9,14 +10,12 @@ const error = ref('')
 const highlights = ref<Highlight[]>([])
 const matched = ref(false)
 
-function run() {
+/** 实时式(FE3):输入即出结果、变化即失效旧结果;150ms 防抖收敛连续击键 */
+function run(): void {
   error.value = ''
   highlights.value = []
   matched.value = false
-  if (!pattern.value.trim()) {
-    error.value = '请输入正则表达式'
-    return
-  }
+  if (!pattern.value.trim()) return
   try {
     highlights.value = regexHighlights(pattern.value, text.value, flags.value.trim())
     matched.value = true
@@ -24,6 +23,23 @@ function run() {
     error.value = `正则表达式非法:${(e as Error).message}`
   }
 }
+
+function recomputeNow(): void {
+  runner.flush()
+}
+
+const runner = watchDebounced([pattern, flags, text], run)
+
+/** 正则与文本同时为空回到空闲态时立即失效旧高亮,不等防抖窗口 */
+watch(
+  [pattern, text],
+  ([p, t]) => {
+    if (p.trim() === '' && t.trim() === '') {
+      runner.cancel()
+      run()
+    }
+  },
+)
 
 const segments = computed(() => {
   const out: { text: string; hl: boolean }[] = []
@@ -39,13 +55,12 @@ const segments = computed(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
     <h2 class="text-base font-semibold tracking-tight">正则视觉匹配</h2>
     <div class="flex flex-col gap-2">
       <div class="flex gap-2">
         <input v-model="pattern" placeholder="要匹配的正则,如 \d+" class="input input-sm flex-1 font-mono" />
         <input v-model="flags" placeholder="flags,如 igm(可空)" class="input input-sm w-36 font-mono" />
-        <button class="btn btn-sm btn-primary" @click="run">匹配</button>
       </div>
       <textarea v-model="text" rows="8" placeholder="在此输入待匹配的文本" class="textarea textarea-bordered font-mono" />
     </div>
@@ -65,5 +80,6 @@ const segments = computed(() => {
         </ol>
       </div>
     </template>
+    <p v-if="!matched && !error" class="text-sm opacity-50">输入正则与文本后实时显示匹配结果,Ctrl+Enter 立即重算</p>
   </div>
 </template>
