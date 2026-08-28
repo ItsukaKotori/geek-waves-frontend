@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRouter } from 'vue-router'
+import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import ThemeToggleButton from '../components/ThemeToggleButton.vue'
+import CommandPalette from '../components/ui/CommandPalette.vue'
+import { toolRegistry, allToolItems } from '../tools/registry'
+import type { CommandItem } from '../types/command'
 
 interface NavItem {
   to: string
@@ -26,6 +30,44 @@ const NAV_CLASS =
   'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ' +
   'text-base-content/70 hover:bg-base-200 hover:text-base-content ' +
   '[&.router-link-exact-active]:bg-base-200 [&.router-link-exact-active]:text-primary'
+
+/**
+ * 命令面板「工具直达」数据源(T1c):与侧栏同一注册表派生,选中语义一致 ——
+ * 工具页内 replace ?tool=(已激活跳过,防堆历史);跨页调起 push 保留返回路径。
+ * 最近使用无需单独记录:?tool= 变化由 ToolsView 的 query watch 同源计入。
+ */
+const router = useRouter()
+
+/**
+ * 侧栏的「实际激活工具」语义(与 ToolsView.activeItem 对齐):
+ * ?tool= 缺失或非法时回落到注册表首项,保证「选中已激活工具 = 无操作」判断一致。
+ */
+function resolvedToolKey(route: RouteLocationNormalizedLoaded): string {
+  const requested = route.query.tool
+  const valid =
+    typeof requested === 'string' ? allToolItems.find((i) => i.key === requested) : undefined
+  return valid?.key ?? allToolItems[0]?.key ?? ''
+}
+
+function navigateToTool(key: string): void {
+  const current = router.currentRoute.value
+  if (current.path === '/tools') {
+    if (resolvedToolKey(current) === key) return
+    void router.replace({ query: { ...current.query, tool: key } })
+    return
+  }
+  void router.push({ path: '/tools', query: { tool: key } })
+}
+
+const toolCommands: CommandItem[] = toolRegistry.flatMap((g) =>
+  g.items.map((t) => ({
+    id: `tool:${t.key}`,
+    label: t.label,
+    hint: g.group,
+    keywords: `${g.group} ${t.key}`,
+    run: () => navigateToTool(t.key),
+  })),
+)
 </script>
 
 <template>
@@ -118,5 +160,7 @@ const NAV_CLASS =
         </div>
       </aside>
     </div>
+
+    <CommandPalette :items="toolCommands" />
   </div>
 </template>
