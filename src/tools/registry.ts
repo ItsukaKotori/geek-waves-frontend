@@ -70,6 +70,11 @@ export const toolRegistry: ToolGroup[] = [
         label: 'Markdown 预览',
         component: defineAsyncComponent(() => import('../components/tools/MarkdownPreview.vue')),
       },
+      {
+        key: 'diff',
+        label: '文本 diff',
+        component: defineAsyncComponent(() => import('../components/tools/TextDiff.vue')),
+      },
     ],
   },
   {
