@@ -1,87 +1,14 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, watch, type Component } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/ui/PageHeader.vue'
 import { useRecentTools } from '../composables/useRecentTools'
-
-interface ToolItem {
-  key: string
-  label: string
-  component: Component
-}
-
-interface ToolGroup {
-  group: string
-  items: ToolItem[]
-}
-
-const registry: ToolGroup[] = [
-  {
-    group: '编解码',
-    items: [
-      {
-        key: 'json',
-        label: 'JSON 转换',
-        component: defineAsyncComponent(() => import('../components/tools/JsonFormatter.vue')),
-      },
-      {
-        key: 'ts',
-        label: '时间戳',
-        component: defineAsyncComponent(() => import('../components/tools/Timestamp.vue')),
-      },
-      {
-        key: 'b64',
-        label: 'Base64/URL',
-        component: defineAsyncComponent(() => import('../components/tools/EncoderDecoder.vue')),
-      },
-    ],
-  },
-  {
-    group: '哈希/ID',
-    items: [
-      {
-        key: 'hash',
-        label: '哈希计算',
-        component: defineAsyncComponent(() => import('../components/tools/HashUuid.vue')),
-      },
-      {
-        key: 'radix',
-        label: '进制转换',
-        component: defineAsyncComponent(() => import('../components/tools/Radix.vue')),
-      },
-    ],
-  },
-  {
-    group: '文本',
-    items: [
-      {
-        key: 'regex',
-        label: '正则视觉匹配',
-        component: defineAsyncComponent(() => import('../components/tools/RegexMatch.vue')),
-      },
-      {
-        key: 'jwt',
-        label: 'JWT 解析',
-        component: defineAsyncComponent(() => import('../components/tools/JwtParser.vue')),
-      },
-    ],
-  },
-  {
-    group: '接口',
-    items: [
-      {
-        key: 'http',
-        label: 'HTTP 接口测试',
-        component: defineAsyncComponent(() => import('../components/tools/HttpTester.vue')),
-      },
-    ],
-  },
-]
+import { toolRegistry, allToolItems, type ToolItem } from '../tools/registry'
 
 const route = useRoute()
 const router = useRouter()
 
-const allItems: ToolItem[] = registry.flatMap((g) => g.items)
+const allItems: ToolItem[] = allToolItems
 
 /** 当前工具以路由 query 为唯一数据源:直达 / 回落 / 点击同步天然一致,无双源漂移 */
 const activeItem = computed(() => {
@@ -143,7 +70,7 @@ const recentItems = computed(() =>
               {{ item.label }}
             </button>
           </template>
-          <template v-for="g in registry" :key="g.group">
+          <template v-for="g in toolRegistry" :key="g.group">
             <p class="px-3 pb-1 pt-4 text-xs font-medium uppercase tracking-wider text-base-content/50">
               {{ g.group }}
             </p>

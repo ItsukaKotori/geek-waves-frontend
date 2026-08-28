@@ -17,7 +17,7 @@ export const RECENT_TOOLS_STORAGE_KEY = 'geekwaves-tools:recent'
 export const RECENT_TOOLS_MAX = 5
 
 export interface RecentToolEntry {
-  /** 工具注册表 key(ToolsView registry),渲染端负责按需校验有效性 */
+  /** 工具注册表 key(src/tools/registry.ts),渲染端负责按需校验有效性 */
   key: string
   usedAt: number
 }
