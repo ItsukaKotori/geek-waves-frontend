@@ -9,7 +9,7 @@ describe('toolRegistry 结构契约', () => {
   const allKeys = toolRegistry.flatMap((g) => g.items.map((i) => i.key))
 
   it('包含全部既有工具,key 唯一且分组顺序稳定', () => {
-    expect(allKeys).toEqual(['json', 'ts', 'b64', 'hash', 'radix', 'regex', 'jwt', 'http'])
+    expect(allKeys).toEqual(['json', 'ts', 'b64', 'hash', 'radix', 'regex', 'jwt', 'markdown', 'http'])
     expect(toolRegistry.map((g) => g.group)).toEqual(['编解码', '哈希/ID', '文本', '接口'])
   })
 

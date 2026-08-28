@@ -65,6 +65,11 @@ export const toolRegistry: ToolGroup[] = [
         label: 'JWT 解析',
         component: defineAsyncComponent(() => import('../components/tools/JwtParser.vue')),
       },
+      {
+        key: 'markdown',
+        label: 'Markdown 预览',
+        component: defineAsyncComponent(() => import('../components/tools/MarkdownPreview.vue')),
+      },
     ],
   },
   {
