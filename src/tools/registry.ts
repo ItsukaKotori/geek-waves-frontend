@@ -75,6 +75,11 @@ export const toolRegistry: ToolGroup[] = [
         label: '文本 diff',
         component: defineAsyncComponent(() => import('../components/tools/TextDiff.vue')),
       },
+      {
+        key: 'cron',
+        label: 'crontab 解析',
+        component: defineAsyncComponent(() => import('../components/tools/CronParser.vue')),
+      },
     ],
   },
   {
