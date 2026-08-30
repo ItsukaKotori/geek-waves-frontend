@@ -6,46 +6,38 @@ import {
   fetchFrameworks,
   refreshFramework,
 } from '../../api/settings'
-import { useToast } from '../../composables/useToast'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
+import { useCrudList } from '../../composables/useCrudList'
 import type { FrameworkWatch } from '../../types'
 import { normalizeRepo } from '../../utils/framework'
 
 const PAGE_SIZE = 20
 
-const records = ref<FrameworkWatch[]>([])
-const total = ref(0)
-const page = ref(1)
-const loading = ref(false)
-const err = ref('')
+const {
+  items: records,
+  total,
+  page,
+  loading,
+  err,
+  load,
+  loadMore,
+  removeItem,
+  toast,
+  showToast,
+} = useCrudList<FrameworkWatch>({
+  fetchPage: (p) => fetchFrameworks(p, PAGE_SIZE),
+  mode: 'append',
+  fallbackError: '框架关注加载失败',
+  reloadAfterRemove: 'reset',
+})
+
+const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)
 
 const name = ref('')
 const repo = ref('')
 const formErr = ref('')
 const saving = ref(false)
 const refreshingId = ref<string | number | null>(null)
-
-const { toast, showToast } = useToast()
-
-async function load(reset = false) {
-  if (reset) page.value = 1
-  loading.value = true
-  err.value = ''
-  try {
-    const res = await fetchFrameworks(page.value, PAGE_SIZE)
-    records.value = reset || page.value === 1 ? res.records : [...records.value, ...res.records]
-    total.value = Number(res.total)
-  } catch (e) {
-    err.value = (e as Error).message || '框架关注加载失败'
-    if (reset) records.value = []
-  } finally {
-    loading.value = false
-  }
-}
-
-function loadMore() {
-  page.value += 1
-  void load()
-}
 
 async function add() {
   formErr.value = ''
@@ -86,14 +78,8 @@ async function refresh(f: FrameworkWatch) {
 }
 
 async function remove(f: FrameworkWatch) {
-  if (!window.confirm(`确认删除框架关注「${f.name}」?`)) return
-  try {
-    await deleteFramework(f.id)
-    showToast('已删除')
-    void load(true)
-  } catch (e) {
-    showToast((e as Error).message || '删除失败', false)
-  }
+  if (!(await confirmRef.value?.confirm({ message: `确认删除框架关注「${f.name}」?`, danger: true }))) return
+  await removeItem(f, deleteFramework)
 }
 
 onMounted(() => void load(true))
@@ -180,6 +166,8 @@ onMounted(() => void load(true))
     <div v-else-if="!loading" class="rounded-box border border-base-300 bg-base-100 px-6 py-10 text-center text-sm text-base-content/60">
       暂无框架关注,在上方添加一个 GitHub 仓库开始跟踪版本更新。
     </div>
+
+    <ConfirmDialog ref="confirmRef" />
 
     <div class="toast toast-end">
       <div v-if="toast" class="alert" :class="toast.ok ? 'alert-success' : 'alert-error'">
