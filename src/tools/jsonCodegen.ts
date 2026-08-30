@@ -14,6 +14,11 @@
  * - 命名:Kotlin 按语言惯例保留原键(camelCase 不改写);非法标识符(关键字/空格/
  *   非 ASCII)用反引号包裹。Rust 转 snake_case;名称相对原键变化时补
  *   #[serde(rename = "原键")] 保证生成结构体可反序列化原 JSON;Rust 关键字后缀 _
+ * - 字段名冲突:归一化/转义可能把不同键折叠为同一标识符(如 userName 与 user_name、
+ *   type 关键字逃逸与 type_、空格净化折叠、反引号标识与普通标识等价),同一结构体内
+ *   最终标识符去重并追加序号;Rust 凭 rename 仍指向原键(反序列化不受影响);
+ *   Kotlin 不加注解,异形键的序列化保真不保证(见报告声明);单下划线为 Kotlin
+ *   保留名(反引号亦不可用),一律归一为 __ 再参与去重
  * - 嵌套对象 → 扁平顶层类型声明,类名取字段名 PascalCase,冲突按出现顺序加数字后缀
  * - 结构声明顺序:根在前,其后为深度优先发现顺序
  */
@@ -97,12 +102,19 @@ const KOTLIN_HARD_KEYWORDS = new Set([
   'true', 'try', 'typealias', 'typeof', 'val', 'var', 'when', 'while',
 ])
 
-function kotlinName(key: string): string {
-  const plain = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) && !KOTLIN_HARD_KEYWORDS.has(key)
-  if (plain) return key
-  // 反引号标识符:不允许包含反引号与换行,净化为下划线;空名兜底
-  const inner = key.replace(/[`\r\n]/g, '_') || '_'
-  return `\`${inner}\``
+function kotlinFieldPlan(key: string, used: Set<string>): string {
+  // 反引号内标识名(反引号不改变标识符身份,去重须按未加反引号的名字):反引号/换行净化为 _
+  let name = key.replace(/[`\r\n]/g, '_')
+  // 单下划线为 Kotlin 保留名(反引号亦不可用);空名同样非法 —— 一律归一为 __ 再参与去重
+  if (name === '' || name === '_') name = '__'
+  const plain = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) && !KOTLIN_HARD_KEYWORDS.has(key) && key !== '_'
+  if (used.has(name)) {
+    let i = 2
+    while (used.has(`${name}${i}`)) i++
+    name = `${name}${i}`
+  }
+  used.add(name)
+  return plain ? name : `\`${name}\``
 }
 
 function kotlinNumber(v: number): string {
@@ -128,8 +140,10 @@ export function kotlinFromJson(text: string): string {
       .map(({ name, obj }) => {
         const keys = Object.keys(obj)
         if (!keys.length) return `data class ${name}()`
+        // 同一结构体内字段名去重(归一化/转义可能折叠不同键),避免产出不编译的重复属性
+        const used = new Set<string>()
         const fields = keys
-          .map((k) => `    val ${kotlinName(k)}: ${kotlinType(obj[k], names)},`)
+          .map((k) => `    val ${kotlinFieldPlan(k, used)}: ${kotlinType(obj[k], names)},`)
           .join('\n')
         return `data class ${name}(\n${fields}\n)`
       })
@@ -160,14 +174,18 @@ function toSnakeCase(key: string): string {
   return s
 }
 
-function rustFieldName(key: string): { name: string; rename: string | null } {
+function rustFieldPlan(key: string, used: Set<string>): { name: string; rename: string | null } {
   let name = toSnakeCase(key)
-  let rename: string | null = name === key ? null : key
-  if (RUST_KEYWORDS.has(name)) {
-    name = `${name}_`
-    rename = key
+  if (RUST_KEYWORDS.has(name)) name = `${name}_`
+  // 同一结构体内字段名去重(snake 化/关键字逃逸可能折叠不同键);
+  // rename 恒指向原键,序号化后的字段仍可反序列化原 JSON
+  if (used.has(name)) {
+    let i = 2
+    while (used.has(`${name}${i}`)) i++
+    name = `${name}${i}`
   }
-  return { name, rename }
+  used.add(name)
+  return { name, rename: name === key ? null : key }
 }
 
 function rustNumber(v: number): string {
@@ -192,9 +210,10 @@ export function rustFromJson(text: string): string {
     .map(({ name, obj }) => {
       const keys = Object.keys(obj)
       if (!keys.length) return `struct ${name} {}`
+      const used = new Set<string>()
       const fields = keys
         .map((k) => {
-          const { name: field, rename } = rustFieldName(k)
+          const { name: field, rename } = rustFieldPlan(k, used)
           const attr = rename === null ? '' : `    #[serde(rename = ${JSON.stringify(rename)})]\n`
           return `${attr}    ${field}: ${rustType(obj[k], names)},`
         })

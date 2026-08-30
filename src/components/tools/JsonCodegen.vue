@@ -115,7 +115,9 @@ function onInput(): void {
       (64 位范围外按浮点);null → Kotlin Any? / Rust serde_json::Value(对齐 TS 生成器的 any),
       字段恒必填、无 Option/默认值;Kotlin 键名保留原文(关键字/非法标识符反引号包裹),
       Rust 键名 snake_case,名称变化时补 #[serde(rename = "原键")] 保证可反序列化;
-      嵌套对象为扁平独立声明,类名取字段名 PascalCase,冲突追加序号
+      嵌套对象为扁平独立声明,类名取字段名 PascalCase,冲突追加序号;归一化撞名的字段名
+      同结构体内去重加序号(Rust 凭 serde(rename) 仍指向原键;Kotlin 不加注解,
+      异形键的序列化保真不保证;单下划线/空键归一为 __)
     </p>
   </div>
 </template>

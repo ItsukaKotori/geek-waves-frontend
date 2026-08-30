@@ -2,6 +2,11 @@
 import { describe, expect, it } from 'vitest'
 import { codegenTargets, findTarget, kotlinFromJson, rustFromJson } from '../jsonCodegen'
 
+/** 统计正则在输出中的出现次数(钉死「不得重复出现」类断言) */
+function countMatches(text: string, pattern: RegExp): number {
+  return [...text.matchAll(new RegExp(pattern.source, pattern.flags.replace('g', '') + 'g'))].length
+}
+
 /**
  * JSON 类型生成(Kotlin/Rust)纯函数层 —— 照抄 jsonConvert.ts 既有类型生成模式:
  * 顶层须为对象(与 TS 接口/SQL 生成一致)、根类型名 Root、数组取首元素类型、
@@ -114,6 +119,22 @@ describe('Kotlin 生成', () => {
     expect(() => kotlinFromJson('"s"')).toThrow(/顶层为对象/)
     expect(() => kotlinFromJson('{')).toThrow()
   })
+
+  it('归一化同名冲突:空键与单下划线键不再双 emit `_`(Kotlin 保留单下划线)', () => {
+    const out = kotlinFromJson(JSON.stringify({ '': 1, _: 2 }))
+    expect(out).toContain('val `__`: Long,')
+    expect(out).toContain('val `__2`: Long,')
+    // 单下划线是 Kotlin 保留名:任何形态的 val _ 都不得出现
+    expect(countMatches(out, /val _[:,]/)).toBe(0)
+    expect(countMatches(out, /val `_`[:,]/)).toBe(0)
+  })
+
+  it('反引号标识与普通标识同名折叠:a\\nb 与 a_b 不再双 emit a_b', () => {
+    const out = kotlinFromJson(JSON.stringify({ 'a\nb': 1, a_b: 2 }))
+    expect(countMatches(out, /val `a_b`: Long,/)).toBe(1)
+    expect(countMatches(out, /val a_b: Long,/)).toBe(0)
+    expect(out).toMatch(/val a_b2: Long,/)
+  })
 })
 
 describe('Rust 生成', () => {
@@ -182,5 +203,35 @@ describe('Rust 生成', () => {
     expect(() => rustFromJson('[1,2]')).toThrow(/顶层为对象/)
     expect(() => rustFromJson('42')).toThrow(/顶层为对象/)
     expect(() => rustFromJson('nope')).toThrow()
+  })
+
+  it('归一化同名冲突:snake 化撞名加序号,serde(rename) 恒指向原键(可反序列化)', () => {
+    const out = rustFromJson(JSON.stringify({ userName: 1, user_name: 2 }))
+    // 两个 JSON 键各自可达:user_name ← userName(rename)、user_name2 ← user_name(rename)
+    expect(countMatches(out, /user_name: i64,/)).toBe(1)
+    expect(out).toMatch(/#\[serde\(rename = "userName"\)\]\s*\n\s*user_name: i64,/)
+    expect(out).toMatch(/#\[serde\(rename = "user_name"\)\]\s*\n\s*user_name2: i64,/)
+  })
+
+  it('关键字后缀逃逸撞名:type 与 type_ 不再双 emit type_', () => {
+    const out = rustFromJson(JSON.stringify({ type: 1, type_: 2 }))
+    expect(countMatches(out, /type_: i64,/)).toBe(1)
+    expect(out).toMatch(/#\[serde\(rename = "type"\)\]\s*\n\s*type_: i64,/)
+    expect(out).toMatch(/#\[serde\(rename = "type_"\)\]\s*\n\s*type_2: i64,/)
+  })
+
+  it('空格/标点净化折叠撞名:user name 与 user-name 各自可达', () => {
+    const out = rustFromJson(JSON.stringify({ 'user name': 1, 'user-name': 2 }))
+    expect(countMatches(out, /user_name: i64,/)).toBe(1)
+    expect(out).toMatch(/#\[serde\(rename = "user name"\)\]\s*\n\s*user_name: i64,/)
+    expect(out).toMatch(/#\[serde\(rename = "user-name"\)\]\s*\n\s*user_name2: i64,/)
+  })
+
+  it('序号回退撞名:后缀名本身被占时继续递增', () => {
+    const out = rustFromJson(JSON.stringify({ user_name: 1, userName: 2, user_name2: 3 }))
+    expect(countMatches(out, /user_name: i64,/)).toBe(1)
+    expect(countMatches(out, /user_name2: i64,/)).toBe(1)
+    expect(out).toMatch(/#\[serde\(rename = "userName"\)\]\s*\n\s*user_name2: i64,/)
+    expect(out).toMatch(/#\[serde\(rename = "user_name2"\)\]\s*\n\s*user_name22: i64,/)
   })
 })
