@@ -16,7 +16,6 @@ const PAGE_SIZE = 20
 const {
   items: records,
   total,
-  page,
   loading,
   err,
   load,
