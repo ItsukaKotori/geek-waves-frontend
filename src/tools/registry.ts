@@ -126,3 +126,13 @@ export const toolRegistry: ToolGroup[] = [
 
 /** 展平后的全量工具条目(按注册表顺序) */
 export const allToolItems: ToolItem[] = toolRegistry.flatMap((g) => g.items)
+
+/**
+ * ?tool= 解析统一语义(ToolsView.activeItem 与 MainLayout 命令面板共用):
+ * 合法字符串取对应 key;缺失/非法回落注册表首项;空注册表兜底空串。
+ */
+export function resolveToolKey(requested: unknown): string {
+  const valid =
+    typeof requested === 'string' ? allToolItems.find((i) => i.key === requested) : undefined
+  return valid?.key ?? allToolItems[0]?.key ?? ''
+}

@@ -3,7 +3,7 @@ import { RouterLink, RouterView, useRouter } from 'vue-router'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import ThemeToggleButton from '../components/ThemeToggleButton.vue'
 import CommandPalette from '../components/ui/CommandPalette.vue'
-import { toolRegistry, allToolItems } from '../tools/registry'
+import { toolRegistry, resolveToolKey } from '../tools/registry'
 import type { CommandItem } from '../types/command'
 
 interface NavItem {
@@ -39,14 +39,11 @@ const NAV_CLASS =
 const router = useRouter()
 
 /**
- * 侧栏的「实际激活工具」语义(与 ToolsView.activeItem 对齐):
+ * 侧栏的「实际激活工具」语义(与 ToolsView.activeItem 对齐,共用 resolveToolKey):
  * ?tool= 缺失或非法时回落到注册表首项,保证「选中已激活工具 = 无操作」判断一致。
  */
 function resolvedToolKey(route: RouteLocationNormalizedLoaded): string {
-  const requested = route.query.tool
-  const valid =
-    typeof requested === 'string' ? allToolItems.find((i) => i.key === requested) : undefined
-  return valid?.key ?? allToolItems[0]?.key ?? ''
+  return resolveToolKey(route.query.tool)
 }
 
 function navigateToTool(key: string): void {

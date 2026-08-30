@@ -3,20 +3,18 @@ import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/ui/PageHeader.vue'
 import { useRecentTools } from '../composables/useRecentTools'
-import { toolRegistry, allToolItems, type ToolItem } from '../tools/registry'
+import { toolRegistry, allToolItems, resolveToolKey, type ToolItem } from '../tools/registry'
 
 const route = useRoute()
 const router = useRouter()
 
 const allItems: ToolItem[] = allToolItems
 
-/** 当前工具以路由 query 为唯一数据源:直达 / 回落 / 点击同步天然一致,无双源漂移 */
+/** 当前工具以路由 query 为唯一数据源(解析语义与 MainLayout 共用 resolveToolKey):
+ *  直达 / 回落 / 点击同步天然一致,无双源漂移 */
 const activeItem = computed(() => {
-  const requested = route.query.tool
-  if (typeof requested === 'string' && allItems.some((i) => i.key === requested)) {
-    return allItems.find((i) => i.key === requested)
-  }
-  return allItems[0]
+  const key = resolveToolKey(route.query.tool)
+  return allItems.find((i) => i.key === key)
 })
 
 /** replace 语义:切换不堆历史;点击已激活工具时跳过,避免重复导航警告 */
