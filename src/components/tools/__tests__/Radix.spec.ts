@@ -119,4 +119,17 @@ describe('Radix 多进制同显(FE6)', () => {
     await nextTick()
     expect((hexInput(w).element as HTMLInputElement).value).toBe('ff')
   })
+
+  it('刷新水合:持久化的编辑行原文挂载即回显(源行不经 run,不等防抖)', async () => {
+    vi.useFakeTimers()
+    const w = mount(Radix)
+    await decInput(w).setValue('255')
+    await nextTick()
+    expect(localStorage.getItem('geekwaves-tools:radix')).toContain('"255"')
+    w.unmount()
+
+    // 模拟刷新后的重挂载:源行(最后编辑的 10 进制行)立即显示原文
+    const reloaded = mount(Radix)
+    expect((decInput(reloaded).element as HTMLInputElement).value).toBe('255')
+  })
 })

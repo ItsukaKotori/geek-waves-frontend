@@ -45,6 +45,9 @@ const error = ref('')
 /** 编辑源:最后被操作的行。初始取持久化的 input/from(旧数据无缝接管)。 */
 const pending = ref({ base: state.from, text: state.input })
 
+/** 持久化水合:源行(最后编辑行)原文挂载即回显 —— 派生行由 run() 联动,源行不经过 run() */
+rowTexts[rowIdForBase(state.from)] = state.input
+
 /** 由源进制反推行 id(自定义基数恒为 'custom',与 rows 定义一致) */
 function rowIdForBase(base: number): string {
   return STANDARD_BASES.includes(base) ? `b${base}` : 'custom'
