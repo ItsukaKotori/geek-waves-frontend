@@ -9,6 +9,7 @@ import {
 } from '../../api/monitor'
 import { usePolling } from '../../composables/usePolling'
 import { useToast } from '../../composables/useToast'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import type { ProbeTarget, ProbeTargetPayload } from '../../types/monitor'
 import { fmtTime } from '../../utils/news'
 
@@ -16,6 +17,8 @@ const records = ref<ProbeTarget[]>([])
 const loading = ref(false)
 const err = ref('')
 const probingId = ref<string | number>(0)
+
+const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)
 
 const dialogEl = ref<HTMLDialogElement | null>(null)
 const saving = ref(false)
@@ -113,7 +116,7 @@ async function probe(t: ProbeTarget) {
 }
 
 async function remove(t: ProbeTarget) {
-  if (!window.confirm(`确认删除探测目标「${t.name}」?`)) return
+  if (!(await confirmRef.value?.confirm({ message: `确认删除探测目标「${t.name}」?`, danger: true }))) return
   try {
     await deleteProbeTarget(t.id)
     showToast('已删除')
@@ -319,6 +322,8 @@ async function save() {
         <button>关闭</button>
       </form>
     </dialog>
+
+    <ConfirmDialog ref="confirmRef" />
 
     <div class="toast toast-end">
       <div v-if="toast" class="alert" :class="toast.ok ? 'alert-success' : 'alert-error'">
