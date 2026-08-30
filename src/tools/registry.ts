@@ -26,6 +26,11 @@ export const toolRegistry: ToolGroup[] = [
         component: defineAsyncComponent(() => import('../components/tools/JsonFormatter.vue')),
       },
       {
+        key: 'codegen',
+        label: 'JSON 类型生成',
+        component: defineAsyncComponent(() => import('../components/tools/JsonCodegen.vue')),
+      },
+      {
         key: 'ts',
         label: '时间戳',
         component: defineAsyncComponent(() => import('../components/tools/Timestamp.vue')),
