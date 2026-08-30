@@ -99,9 +99,14 @@ function parseField(raw: string, spec: FieldSpec): CronField {
       lo = spec.lo
       hi = spec.hi
     } else if (body.includes('-')) {
-      const [aRaw, bRaw] = body.split('-')
-      lo = resolveToken(aRaw ?? '', spec)
-      hi = resolveToken(bRaw ?? '', spec)
+      // 范围必须恰好「起-止」两段:多段(如 1-2-3)是词法错误,不得静默取前两段
+      const rangeParts = body.split('-')
+      if (rangeParts.length !== 2) {
+        throw new Error(`${spec.label}字段范围词法非法:「${body}」(应为「起-止」两段)`)
+      }
+      const [aRaw, bRaw] = rangeParts
+      lo = resolveToken(aRaw!, spec)
+      hi = resolveToken(bRaw!, spec)
       if (lo > hi) throw new Error(`${spec.label}字段范围起始 ${aRaw} 大于结束 ${bRaw}`)
     } else {
       lo = resolveToken(body, spec)
@@ -340,7 +345,7 @@ export function nextCronRun(expr: CronExpr, after: Date): Date {
     }
     return new Date(t.getTime())
   }
-  throw new Error('向前 5 年内未找到匹配的运行时间(表达式可能永不匹配,如「2 月 31 日」),请检查日/月/周组合')
+  throw new Error('有限步搜索内未找到匹配的运行时间(表达式可能永不匹配,如「2 月 31 日」),请检查日/月/周组合')
 }
 
 /** 逐次递推未来 count 次运行时刻(count ∈ 1~50) */

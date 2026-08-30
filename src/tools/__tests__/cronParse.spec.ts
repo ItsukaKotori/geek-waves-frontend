@@ -33,6 +33,7 @@ describe('parseCron:解析与报错', () => {
 
   it('范围颠倒 / 步长非法 / 词法错误明确报错', () => {
     expect(() => parseCron('50-10 * * * *')).toThrow(/大于/)
+    expect(() => parseCron('1-2-3 * * * *')).toThrow(/范围词法非法/)
     expect(() => parseCron('*/0 * * * *')).toThrow(/步长/)
     expect(() => parseCron('*/x * * * *')).toThrow(/无法识别|步长/)
     expect(() => parseCron('abc * * * *')).toThrow(/无法识别/)
