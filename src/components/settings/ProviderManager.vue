@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useTemplateRef } from 'vue'
 import {
   createProvider,
   deleteProvider,
@@ -7,7 +7,8 @@ import {
   setDefaultProvider,
   updateProvider,
 } from '../../api/settings'
-import { useToast } from '../../composables/useToast'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
+import { useCrudList } from '../../composables/useCrudList'
 import type { AiProvider, ProviderPayload } from '../../types'
 
 const VENDOR_LABEL: Record<string, string> = {
@@ -22,38 +23,78 @@ const VENDOR_HINTS = [
   { vendor: 'Anthropic', url: 'https://api.anthropic.com' },
 ]
 
-const providers = ref<AiProvider[]>([])
-const loading = ref(false)
-const err = ref('')
+interface ProviderForm {
+  name: string
+  vendor: string
+  baseUrl: string
+  model: string
+  apiKey: string
+  enabled: boolean
+  isDefault: boolean
+}
 
-const dialogEl = ref<HTMLDialogElement | null>(null)
-const saving = ref(false)
-const formErr = ref('')
-const editingId = ref<number | string>(0)
-const form = ref({
-  name: '',
-  vendor: 'OPENAI_COMPAT',
-  baseUrl: '',
-  model: '',
-  apiKey: '',
-  enabled: true,
-  isDefault: false,
+const dialogEl = useTemplateRef<HTMLDialogElement>('dialogEl')
+
+const {
+  items: providers,
+  loading,
+  err,
+  load,
+  removeItem,
+  toggleEnabled: toggleRow,
+  toast,
+  showToast,
+  editingId,
+  form,
+  saving,
+  formErr,
+  openAdd,
+  openEdit,
+  closeDialog,
+  save,
+} = useCrudList<AiProvider, ProviderForm>({
+  fetchPage: () => fetchProviders(),
+  fallbackError: 'AI 配置加载失败',
+  dialog: {
+    dialogEl,
+    blank: () => ({
+      name: '',
+      vendor: 'OPENAI_COMPAT',
+      baseUrl: '',
+      model: '',
+      apiKey: '',
+      enabled: true,
+      isDefault: false,
+    }),
+    fromItem: (p) => ({
+      name: p.name,
+      vendor: p.vendor,
+      baseUrl: p.baseUrl ?? '',
+      model: p.model ?? '',
+      apiKey: '',
+      enabled: p.enabled,
+      isDefault: p.isDefault,
+    }),
+    submit: async (id, f) => {
+      const payload: ProviderPayload = {
+        name: f.name.trim(),
+        vendor: f.vendor,
+        enabled: f.enabled,
+        isDefault: f.isDefault,
+      }
+      if (f.baseUrl.trim()) payload.baseUrl = f.baseUrl.trim()
+      if (f.model.trim()) payload.model = f.model.trim()
+      const key = f.apiKey.trim()
+      if (key) payload.apiKey = key
+      if (id) await updateProvider(id, payload)
+      else await createProvider(payload)
+    },
+    validate: (f) => (f.name.trim() ? '' : '请填写名称'),
+    savedToast: { add: 'AI 配置已新增', edit: '已保存修改' },
+  },
 })
 
-const { toast, showToast } = useToast()
-
-async function load() {
-  loading.value = true
-  err.value = ''
-  try {
-    providers.value = await fetchProviders()
-  } catch (e) {
-    err.value = (e as Error).message || 'AI 配置加载失败'
-    providers.value = []
-  } finally {
-    loading.value = false
-  }
-}
+const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)
 
 function providerPayloadOf(p: AiProvider): ProviderPayload {
   const base: ProviderPayload = {
@@ -67,16 +108,8 @@ function providerPayloadOf(p: AiProvider): ProviderPayload {
   return base
 }
 
-async function toggleEnabled(p: AiProvider) {
-  const next = !p.enabled
-  p.enabled = next
-  try {
-    await updateProvider(p.id, { ...providerPayloadOf(p), enabled: next })
-    showToast('已更新启用状态')
-  } catch (e) {
-    p.enabled = !next
-    showToast((e as Error).message || '更新失败', false)
-  }
+function toggleEnabled(p: AiProvider) {
+  void toggleRow(p, (it, next) => updateProvider(it.id, { ...providerPayloadOf(it), enabled: next }))
 }
 
 async function setDefault(p: AiProvider) {
@@ -90,78 +123,8 @@ async function setDefault(p: AiProvider) {
 }
 
 async function remove(p: AiProvider) {
-  if (!window.confirm(`确认删除 AI 配置「${p.name}」?`)) return
-  try {
-    await deleteProvider(p.id)
-    showToast('已删除')
-    void load()
-  } catch (e) {
-    showToast((e as Error).message || '删除失败', false)
-  }
-}
-
-function openAdd() {
-  editingId.value = 0
-  form.value = {
-    name: '',
-    vendor: 'OPENAI_COMPAT',
-    baseUrl: '',
-    model: '',
-    apiKey: '',
-    enabled: true,
-    isDefault: false,
-  }
-  formErr.value = ''
-  dialogEl.value?.showModal()
-}
-
-function openEdit(p: AiProvider) {
-  editingId.value = p.id
-  form.value = {
-    name: p.name,
-    vendor: p.vendor,
-    baseUrl: p.baseUrl ?? '',
-    model: p.model ?? '',
-    apiKey: '',
-    enabled: p.enabled,
-    isDefault: p.isDefault,
-  }
-  formErr.value = ''
-  dialogEl.value?.showModal()
-}
-
-function closeDialog() {
-  dialogEl.value?.close()
-}
-
-async function save() {
-  if (!form.value.name.trim()) {
-    formErr.value = '请填写名称'
-    return
-  }
-  formErr.value = ''
-  saving.value = true
-  const payload: ProviderPayload = {
-    name: form.value.name.trim(),
-    vendor: form.value.vendor,
-    enabled: form.value.enabled,
-    isDefault: form.value.isDefault,
-  }
-  if (form.value.baseUrl.trim()) payload.baseUrl = form.value.baseUrl.trim()
-  if (form.value.model.trim()) payload.model = form.value.model.trim()
-  const key = form.value.apiKey.trim()
-  if (key) payload.apiKey = key
-  try {
-    if (editingId.value) await updateProvider(editingId.value, payload)
-    else await createProvider(payload)
-    showToast(editingId.value ? '已保存修改' : 'AI 配置已新增')
-    closeDialog()
-    void load()
-  } catch (e) {
-    formErr.value = (e as Error).message || '保存失败'
-  } finally {
-    saving.value = false
-  }
+  if (!(await confirmRef.value?.confirm({ message: `确认删除 AI 配置「${p.name}」?`, danger: true }))) return
+  await removeItem(p, deleteProvider)
 }
 
 onMounted(() => void load())
@@ -176,7 +139,7 @@ onMounted(() => void load())
 
     <div v-if="err" class="flex items-center justify-between rounded-box border border-error/30 bg-error/5 px-4 py-3 text-sm text-error">
       <span>{{ err }}</span>
-      <button class="btn btn-ghost btn-sm text-error" @click="load">重试</button>
+      <button class="btn btn-ghost btn-sm text-error" @click="load()">重试</button>
     </div>
 
     <div v-if="loading && !providers.length" class="flex justify-center py-10">
@@ -303,6 +266,8 @@ onMounted(() => void load())
         <button>关闭</button>
       </form>
     </dialog>
+
+    <ConfirmDialog ref="confirmRef" />
 
     <div class="toast toast-end">
       <div v-if="toast" class="alert" :class="toast.ok ? 'alert-success' : 'alert-error'">
