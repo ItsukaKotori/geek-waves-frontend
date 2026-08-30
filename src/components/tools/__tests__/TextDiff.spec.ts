@@ -55,6 +55,12 @@ describe('TextDiff 实时对比', () => {
     expect(types).toEqual(['equal'])
   })
 
+  it('空闲态不渲染警告横幅(tooLarge 未触发,无空 alert 占位)', () => {
+    vi.useFakeTimers()
+    const w = mount(TextDiff)
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+  })
+
   it(`任一侧超过 ${MAX_DIFF_LINES} 行:停止计算并提示,不渲染结果`, async () => {
     vi.useFakeTimers()
     const w = mount(TextDiff)

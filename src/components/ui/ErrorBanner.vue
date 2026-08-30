@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 /**
  * 统一错误横幅:消息 + 可选关闭按钮 + 类型变体,基于 DaisyUI alert 体系。
  * 纯展示组件 —— 不持有状态、不自行隐藏;close 只向上抛,
@@ -7,7 +8,7 @@
 
 type ErrorBannerVariant = 'error' | 'warning' | 'info' | 'success'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** 横幅正文(单段文本) */
     message: string
@@ -24,6 +25,9 @@ withDefaults(
 
 defineEmits<{ close: [] }>()
 
+/** 空消息(含纯空白)不渲染横幅:父级空闲态传 '' 时保持无 alert,防无条件挂载出现空横幅 */
+const hasMessage = computed(() => props.message.trim() !== '')
+
 /** 各变体的语义图标(线性图标,跟随 currentColor) */
 const VARIANT_ICONS: Record<ErrorBannerVariant, string> = {
   error: 'M12 9v4m0 4h.01M10.29 3.86l-8.02 13.9A2 2 0 0 0 3.98 21h16.04a2 2 0 0 0 1.71-3.24L13.71 3.86a2 2 0 0 0-3.42 0z',
@@ -35,6 +39,7 @@ const VARIANT_ICONS: Record<ErrorBannerVariant, string> = {
 
 <template>
   <div
+    v-if="hasMessage"
     role="alert"
     class="alert alert-soft items-start py-2.5 text-sm"
     :class="`alert-${variant}`"

@@ -76,6 +76,12 @@ describe('CidrCalc 实时计算', () => {
     expect(w.find('[data-testid="cidr-network"]').text()).toBe('10.0.0.0')
   })
 
+  it('空闲态不渲染错误横幅(挂载即算成功前 errorMessage 为空,无 alert 占位)', () => {
+    vi.useFakeTimers()
+    const w = mount(CidrCalc)
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+  })
+
   it('输入经 useToolState 持久化', async () => {
     vi.useFakeTimers()
     const w = mount(CidrCalc)

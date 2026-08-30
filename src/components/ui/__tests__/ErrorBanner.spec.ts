@@ -40,6 +40,19 @@ describe('ErrorBanner 渲染', () => {
   })
 })
 
+describe('ErrorBanner 空消息守卫', () => {
+  it('message 为空串时不渲染横幅(空闲态无 alert,防父级无条件挂载出现空横幅)', () => {
+    const w = mount(ErrorBanner, { props: { message: '' } })
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+    expect(w.text()).toBe('')
+  })
+
+  it('message 为纯空白时同样不渲染', () => {
+    const w = mount(ErrorBanner, { props: { message: '   ' } })
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+  })
+})
+
 describe('ErrorBanner 关闭事件', () => {
   it('dismissible 时渲染关闭按钮,点击仅向上 emit close(不自行消失)', async () => {
     const w = mountBanner({ dismissible: true })
