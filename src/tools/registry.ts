@@ -110,6 +110,11 @@ export const toolRegistry: ToolGroup[] = [
         label: 'CIDR/IP 子网计算',
         component: defineAsyncComponent(() => import('../components/tools/CidrCalc.vue')),
       },
+      {
+        key: 'color',
+        label: '颜色工具',
+        component: defineAsyncComponent(() => import('../components/tools/ColorTool.vue')),
+      },
     ],
   },
 ]

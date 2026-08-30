@@ -10,7 +10,7 @@ describe('toolRegistry 结构契约', () => {
 
   it('包含全部既有工具,key 唯一且分组顺序稳定', () => {
     expect(allKeys).toEqual([
-      'json', 'ts', 'b64', 'hash', 'radix', 'pwd', 'regex', 'jwt', 'markdown', 'diff', 'cron', 'http', 'cidr',
+      'json', 'ts', 'b64', 'hash', 'radix', 'pwd', 'regex', 'jwt', 'markdown', 'diff', 'cron', 'http', 'cidr', 'color',
     ])
   })
 
