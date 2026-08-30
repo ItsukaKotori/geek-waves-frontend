@@ -36,30 +36,6 @@ export async function analyzeAI(
   }
 }
 
-/**
- * 触发后端重新生成 AI 解读(即 refresh-ai = analyze+force)。
- * 后端以 SSE 返回:本函数仅触发并消费完流,等待生成完成即解析结束,
- * 完成后调用方自行 fetchNewsDetail 重新拉取 summary。
- */
-export async function refreshAi(id: string | number): Promise<void> {
-  const resp = await fetch(`/api/news/${id}/refresh-ai`, { method: 'POST' })
-  if (!resp.ok) throw new Error(await messageOf(resp, 'AI 重新生成失败'))
-  await drain(resp)
-}
-
-async function drain(resp: Response): Promise<void> {
-  if (!resp.body) return
-  const reader = resp.body.getReader()
-  try {
-    for (;;) {
-      const { done } = await reader.read()
-      if (done) break
-    }
-  } finally {
-    reader.releaseLock()
-  }
-}
-
 async function messageOf(resp: Response, fallback: string): Promise<string> {
   try {
     const j = await resp.json()

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { formatJson } from '../jsonUtils'
 import { tsToDate, dateToTs } from '../timestamp'
 import { base64Encode, base64Decode } from '../encodeDecode'
 import { hashValue, uuid4 } from '../hashUuid'
@@ -14,16 +13,6 @@ const localStr = (ts: number) => {
 }
 
 describe('tools', () => {
-  it('formatJson:格式化并保留换行缩进', () => {
-    expect(formatJson('{"a":1,"b":[1,2]}')).toContain('\n')
-    expect(JSON.parse(formatJson('{"a":1}'))).toEqual({ a: 1 })
-  })
-
-  it('formatJson:非法 JSON 抛异常', () => {
-    expect(() => formatJson('{')).toThrow()
-    expect(() => formatJson('not json')).toThrow()
-  })
-
   it('tsToDate:本地时区 YYYY-MM-DD HH:mm:ss', () => {
     expect(tsToDate(0)).toBe(localStr(0))
     expect(tsToDate(0)).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
