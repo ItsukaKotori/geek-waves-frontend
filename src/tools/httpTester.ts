@@ -17,6 +17,8 @@ export interface CurlParts {
 
 /** 纯噪声布尔短旗标(可忽略);-I/-G/--head 除外 —— 它们影响方法或行为 */
 const SAFE_SHORT_CLUSTER_LETTERS = 'sSkLvi#0'
+/** 短旗标簇中可夹带(含簇首)的请求方法字母(-I/-G,等价 --head/--get) */
+const SAFE_SHORT_METHOD_LETTERS = 'IG'
 
 interface LongOption {
   /** 需要消费一个值(空格或 = 分隔) */
@@ -30,7 +32,8 @@ interface LongOption {
  * - 头:-H/--header(可多次)、-A/--user-agent、-e/--referer、-u/--user(Basic)
  * - 数据:-d/--data/--data-raw/--data-binary(多条按 curl 原语义以 & 连接)
  * - URL:裸参数或 --url
- * - 忽略的杂项:-s/-S/-k/-L/-i/-v/-G/-#/-0/--compressed/--http1.1/--http2 等;
+ * - 方法短旗标:-I/-G(等价 --head/--get)
+ * - 忽略的杂项:-s/-S/-k/-L/-i/-v/-#/-0/--compressed/--http1.1/--http2 等;
  *   带值忽略:--max-time/--connect-timeout/--retry/-o/-c/-b 等
  */
 const LONG_OPTIONS: Record<string, LongOption> = {
@@ -78,9 +81,12 @@ const REJECTED_LONG_OPTIONS: Record<string, string> = {
   json: '--json 暂不支持(请用 -H Content-Type + --data-raw)',
 }
 
+/** 布尔旗标 → 请求方法:短旗标首字母(-I/-G)与长旗标名(--head/--get)同表 */
 const SAFE_BOOLEAN_METHOD_MAP: Record<string, string> = {
   I: 'HEAD',
   G: 'GET',
+  head: 'HEAD',
+  get: 'GET',
 }
 
 export function parseCurl(input: string): CurlParts {
@@ -208,16 +214,17 @@ export function parseCurl(input: string): CurlParts {
 
   function handleShort(body: string): void {
     if (body === '') return
-    // 短旗标簇(-sfL 等纯噪声组合)
-    const allSafe = [...body].every((ch) => SAFE_SHORT_CLUSTER_LETTERS.includes(ch))
+    // 短旗标簇:纯噪声(-sfL)或噪声中夹带方法字母(-I/-G/-sGk 等);置方法后返回
+    const allSafe = [...body].every(
+      (ch) => SAFE_SHORT_CLUSTER_LETTERS.includes(ch) || SAFE_SHORT_METHOD_LETTERS.includes(ch),
+    )
     if (allSafe) {
-      const firstLetter = body[0]!
-      if (firstLetter in SAFE_BOOLEAN_METHOD_MAP) method = SAFE_BOOLEAN_METHOD_MAP[firstLetter]
+      const methodLetter = [...body].find((ch) => SAFE_SHORT_METHOD_LETTERS.includes(ch))
+      if (methodLetter !== undefined) method = SAFE_BOOLEAN_METHOD_MAP[methodLetter]
       return
     }
-    const letter = body[0]!
     const rest = body.slice(1)
-    switch (letter) {
+    switch (body[0]!) {
       case 'X':
         method = shortFlagValue(rest)
         return
@@ -241,11 +248,14 @@ export function parseCurl(input: string): CurlParts {
     }
   }
 
-  /** 簇中第一个既非安全噪声、也非带值选项的字母,用于错误信息精确定位 */
+  /** 簇中第一个既非安全噪声、非方法字母、也非带值选项的字母,用于错误信息精确定位 */
   function unknownShortLetter(body: string): string {
     return (
       [...body].find(
-        (ch) => !SAFE_SHORT_CLUSTER_LETTERS.includes(ch) && !'XHAeud'.includes(ch),
+        (ch) =>
+          !SAFE_SHORT_CLUSTER_LETTERS.includes(ch) &&
+          !SAFE_SHORT_METHOD_LETTERS.includes(ch) &&
+          !'XHAeud'.includes(ch),
       ) ?? body[0]!
     )
   }

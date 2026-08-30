@@ -110,6 +110,13 @@ describe('parseCurl(声明范围内常用形态)', () => {
     expect(parseCurl('curl https://a.example.com').method).toBe('GET')
   })
 
+  it('--head/--get 长旗标映射请求方法,与短旗标 -I/-G 同语义', () => {
+    expect(parseCurl('curl --head https://a.example.com').method).toBe('HEAD')
+    expect(parseCurl('curl --get https://a.example.com').method).toBe('GET')
+    expect(parseCurl('curl -I https://a.example.com').method).toBe('HEAD')
+    expect(parseCurl('curl -sGk https://a.example.com').method).toBe('GET')
+  })
+
   it('行尾反斜杠续行可解析', () => {
     const p = parseCurl(['curl https://a.example.com \\', '  -X PATCH'].join('\n'))
     expect(p.method).toBe('PATCH')
