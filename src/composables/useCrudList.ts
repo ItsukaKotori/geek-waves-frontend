@@ -12,7 +12,8 @@ import { useToast } from './useToast'
  *   属于 ConfirmDialog,由调用方先行 await)。
  * - toggleEnabled:乐观翻转,失败回滚(两端文案与既有实现一致)。
  * - dialog(可选):openAdd/openEdit 回填表单,save 走 校验 → submit →
- *   toast → 关闭 → 重载,失败写入 formErr。
+ *   toast → 关闭 → 重载,失败写入 formErr;模板 <dialog> 元素由调用方
+ *   以 useTemplateRef 绑定后经 dialogEl 传入。
  */
 
 /** 分页取数结果;直接返回数组表示无分页接口(total 随 records) */
@@ -37,6 +38,8 @@ export interface UseCrudListOptions<T extends CrudRecord> {
 }
 
 export interface UseCrudDialogOptions<T extends CrudRecord, F> {
+  /** 模板 <dialog> 元素引用(经 useTemplateRef 绑定后传入;缺省时仅做无弹窗逻辑) */
+  dialogEl?: Ref<HTMLDialogElement | null>
   /** 新增时的空白表单 */
   blank: () => F
   /** 编辑时由记录回填表单 */
@@ -59,7 +62,7 @@ export interface UseCrudListReturn<T extends CrudRecord> {
   load: (reset?: boolean) => Promise<void>
   loadMore: () => void
   go: (p: number) => void
-  removeItem: (item: T, remove: (item: T) => Promise<unknown>) => Promise<boolean>
+  removeItem: (item: T, remove: (id: number | string) => Promise<unknown>) => Promise<boolean>
   toggleEnabled: <K extends { enabled: boolean }>(
     item: K,
     buildUpdate: (item: K, next: boolean) => unknown,
@@ -143,10 +146,10 @@ export function useCrudList<T extends CrudRecord, F>(
 
   async function removeItem(
     item: T,
-    remove: (item: T) => Promise<unknown>,
+    remove: (id: number | string) => Promise<unknown>,
   ): Promise<boolean> {
     try {
-      await remove(item)
+      await remove(item.id)
       showToast('已删除')
       void load(reloadAfterRemove === 'reset')
       return true
@@ -191,7 +194,7 @@ export function useCrudList<T extends CrudRecord, F>(
   if (!dialog) return base
   const dlg: UseCrudDialogOptions<T, F> = dialog
 
-  const dialogEl = ref<HTMLDialogElement | null>(null)
+  const dialogEl = dlg.dialogEl ?? (ref(null) as Ref<HTMLDialogElement | null>)
   const saving = ref(false)
   const formErr = ref('')
   const editingId = ref<number | string>(0)

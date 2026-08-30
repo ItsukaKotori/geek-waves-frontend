@@ -7,7 +7,7 @@ import { useCrudList } from '../useCrudList'
  *   失败清空列表并归零 total/pages。
  * - append 模式:loadMore 追加下一页,load(true) 重置回第一页(FrameworkManager 形态);
  *   追加失败保留已加载列表与 total,重置失败仅清空列表。
- * - removeItem 承担删除后的 toast + 重载骨架(confirm 交互由 ConfirmDialog 负责)。
+ * - removeItem 承担删除后的 toast + 重载骨架(以记录 id 调用删除接口;confirm 交互由 ConfirmDialog 负责)。
  * - toggleEnabled 为乐观更新骨架,失败回滚。
  * - dialog 部分:openAdd/openEdit 回填表单,save 走 校验 → submit → toast → 重载。
  */
@@ -178,7 +178,7 @@ describe('useCrudList removeItem', () => {
     const ok = await crud.removeItem(target, removeApi)
 
     expect(ok).toBe(true)
-    expect(removeApi).toHaveBeenCalledWith(target)
+    expect(removeApi).toHaveBeenCalledWith(target.id)
     expect(crud.toast.value).toMatchObject({ msg: '已删除', ok: true })
     expect(fetchPage).toHaveBeenCalledTimes(2)
     expect(fetchPage).toHaveBeenLastCalledWith(1)

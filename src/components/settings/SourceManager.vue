@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useTemplateRef } from 'vue'
 import {
   createSource,
   deleteSource,
@@ -7,7 +7,8 @@ import {
   triggerFetch,
   updateSource,
 } from '../../api/settings'
-import { useToast } from '../../composables/useToast'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
+import { useCrudList } from '../../composables/useCrudList'
 import type { InfoSource, SourcePayload } from '../../types'
 import { fmtTime } from '../../utils/news'
 
@@ -46,52 +47,95 @@ const PRESETS: Record<string, TypePreset> = {
   HN_API: { configJson: '{}' },
 }
 
-const records = ref<InfoSource[]>([])
-const total = ref(0)
-const pages = ref(0)
-const page = ref(1)
-const loading = ref(false)
-const err = ref('')
-const fetchingId = ref<number | string>(0)
+interface SourceForm {
+  name: string
+  code: string
+  type: string
+  baseUrl: string
+  refreshMinutes: number
+  sortOrder: number
+  configJson: string
+}
 
-const dialogEl = ref<HTMLDialogElement | null>(null)
-const saving = ref(false)
-const formErr = ref('')
-const editingId = ref<number | string>(0)
-const form = ref({
-  name: '',
-  code: '',
-  type: 'RSS',
-  baseUrl: '',
-  refreshMinutes: 60,
-  sortOrder: 0,
-  configJson: PRESETS.RSS.configJson,
+const dialogEl = useTemplateRef<HTMLDialogElement>('dialogEl')
+
+const {
+  items: records,
+  loading,
+  err,
+  page,
+  total,
+  pages,
+  load,
+  go,
+  removeItem,
+  toggleEnabled: toggleRow,
+  toast,
+  showToast,
+  editingId,
+  form,
+  saving,
+  formErr,
+  openAdd,
+  openEdit,
+  closeDialog,
+  save,
+} = useCrudList<InfoSource, SourceForm>({
+  fetchPage: (p) => fetchSources(p, PAGE_SIZE),
+  fallbackError: '信息源加载失败',
+  dialog: {
+    dialogEl,
+    blank: () => ({
+      name: '',
+      code: '',
+      type: 'RSS',
+      baseUrl: '',
+      refreshMinutes: 60,
+      sortOrder: 0,
+      configJson: PRESETS.RSS.configJson,
+    }),
+    fromItem: (s) => ({
+      name: s.name,
+      code: s.code,
+      type: s.type,
+      baseUrl: s.baseUrl ?? '',
+      refreshMinutes: s.refreshMinutes == null ? 60 : Number(s.refreshMinutes),
+      sortOrder: s.sortOrder == null ? 0 : Number(s.sortOrder),
+      configJson: s.configJson ?? '',
+    }),
+    submit: async (id, f) => {
+      const payload: SourcePayload = {
+        name: f.name.trim(),
+        code: f.code.trim(),
+        type: f.type,
+        baseUrl: f.baseUrl.trim() || undefined,
+        configJson: f.configJson.trim() || undefined,
+        sortOrder: Number(f.sortOrder) || 0,
+        refreshMinutes: Number(f.refreshMinutes) || 0,
+      }
+      if (id) await updateSource(id, payload)
+      else await createSource(payload)
+    },
+    validate: (f) => {
+      if (!f.name.trim()) return '请填写名称'
+      if (!f.code.trim()) return '请填写编码'
+      const cfg = f.configJson.trim()
+      if (cfg) {
+        try {
+          JSON.parse(cfg)
+        } catch {
+          return 'configJson 不是合法的 JSON'
+        }
+      }
+      return ''
+    },
+    savedToast: { add: '已新增信息源', edit: '已保存修改' },
+  },
 })
 
-const { toast, showToast } = useToast()
+const fetchingId = ref<number | string>(0)
 
-async function load() {
-  loading.value = true
-  err.value = ''
-  try {
-    const res = await fetchSources(page.value, PAGE_SIZE)
-    records.value = res.records
-    total.value = Number(res.total)
-    pages.value = Number(res.pages)
-  } catch (e) {
-    err.value = (e as Error).message || '信息源加载失败'
-    records.value = []
-    total.value = 0
-    pages.value = 0
-  } finally {
-    loading.value = false
-  }
-}
-
-function go(p: number) {
-  page.value = Math.max(1, Math.min(p, Math.max(pages.value, 1)))
-  void load()
-}
+const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)
 
 function sourcePayloadOf(s: InfoSource): SourcePayload {
   const p: SourcePayload = { name: s.name, code: s.code, type: s.type, enabled: s.enabled }
@@ -104,16 +148,8 @@ function sourcePayloadOf(s: InfoSource): SourcePayload {
   return p
 }
 
-async function toggleEnabled(s: InfoSource) {
-  const next = !s.enabled
-  s.enabled = next
-  try {
-    await updateSource(s.id, { ...sourcePayloadOf(s), enabled: next })
-    showToast('已更新启用状态')
-  } catch (e) {
-    s.enabled = !next
-    showToast((e as Error).message || '更新失败', false)
-  }
+function toggleEnabled(s: InfoSource) {
+  void toggleRow(s, (it, next) => updateSource(it.id, { ...sourcePayloadOf(it), enabled: next }))
 }
 
 async function runFetch(s: InfoSource) {
@@ -130,44 +166,8 @@ async function runFetch(s: InfoSource) {
 }
 
 async function remove(s: InfoSource) {
-  if (!window.confirm(`确认删除信息源「${s.name}」?`)) return
-  try {
-    await deleteSource(s.id)
-    showToast('已删除')
-    void load()
-  } catch (e) {
-    showToast((e as Error).message || '删除失败', false)
-  }
-}
-
-function openAdd() {
-  editingId.value = 0
-  form.value = {
-    name: '',
-    code: '',
-    type: 'RSS',
-    baseUrl: '',
-    refreshMinutes: 60,
-    sortOrder: 0,
-    configJson: PRESETS.RSS.configJson,
-  }
-  formErr.value = ''
-  dialogEl.value?.showModal()
-}
-
-function openEdit(s: InfoSource) {
-  editingId.value = s.id
-  form.value = {
-    name: s.name,
-    code: s.code,
-    type: s.type,
-    baseUrl: s.baseUrl ?? '',
-    refreshMinutes: s.refreshMinutes == null ? 60 : Number(s.refreshMinutes),
-    sortOrder: s.sortOrder == null ? 0 : Number(s.sortOrder),
-    configJson: s.configJson ?? '',
-  }
-  formErr.value = ''
-  dialogEl.value?.showModal()
+  if (!(await confirmRef.value?.confirm({ message: `确认删除信息源「${s.name}」?`, danger: true }))) return
+  await removeItem(s, deleteSource)
 }
 
 function onTypeChange() {
@@ -177,54 +177,6 @@ function onTypeChange() {
   const untouched = !cur || Object.values(PRESETS).some((p) => p.configJson === cur)
   if (untouched) form.value.configJson = preset.configJson
   if (preset.refreshMinutes != null) form.value.refreshMinutes = preset.refreshMinutes
-}
-
-function closeDialog() {
-  dialogEl.value?.close()
-}
-
-function validate(): string {
-  if (!form.value.name.trim()) return '请填写名称'
-  if (!form.value.code.trim()) return '请填写编码'
-  const cfg = form.value.configJson.trim()
-  if (cfg) {
-    try {
-      JSON.parse(cfg)
-    } catch {
-      return 'configJson 不是合法的 JSON'
-    }
-  }
-  return ''
-}
-
-async function save() {
-  const msg = validate()
-  if (msg) {
-    formErr.value = msg
-    return
-  }
-  formErr.value = ''
-  saving.value = true
-  const payload: SourcePayload = {
-    name: form.value.name.trim(),
-    code: form.value.code.trim(),
-    type: form.value.type,
-    baseUrl: form.value.baseUrl.trim() || undefined,
-    configJson: form.value.configJson.trim() || undefined,
-    sortOrder: Number(form.value.sortOrder) || 0,
-    refreshMinutes: Number(form.value.refreshMinutes) || 0,
-  }
-  try {
-    if (editingId.value) await updateSource(editingId.value, payload)
-    else await createSource(payload)
-    showToast(editingId.value ? '已保存修改' : '已新增信息源')
-    closeDialog()
-    void load()
-  } catch (e) {
-    formErr.value = (e as Error).message || '保存失败'
-  } finally {
-    saving.value = false
-  }
 }
 
 onMounted(() => void load())
@@ -239,7 +191,7 @@ onMounted(() => void load())
 
     <div v-if="err" class="flex items-center justify-between rounded-box border border-error/30 bg-error/5 px-4 py-3 text-sm text-error">
       <span>{{ err }}</span>
-      <button class="btn btn-ghost btn-sm text-error" @click="load">重试</button>
+      <button class="btn btn-ghost btn-sm text-error" @click="load()">重试</button>
     </div>
 
     <div v-if="loading && !records.length" class="flex justify-center py-10">
@@ -411,6 +363,8 @@ onMounted(() => void load())
         <button>关闭</button>
       </form>
     </dialog>
+
+    <ConfirmDialog ref="confirmRef" />
 
     <div class="toast toast-end">
       <div v-if="toast" class="alert" :class="toast.ok ? 'alert-success' : 'alert-error'">
