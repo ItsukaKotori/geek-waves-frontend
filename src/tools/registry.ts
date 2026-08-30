@@ -102,6 +102,16 @@ export const toolRegistry: ToolGroup[] = [
       },
     ],
   },
+  {
+    group: '计算',
+    items: [
+      {
+        key: 'cidr',
+        label: 'CIDR/IP 子网计算',
+        component: defineAsyncComponent(() => import('../components/tools/CidrCalc.vue')),
+      },
+    ],
+  },
 ]
 
 /** 展平后的全量工具条目(按注册表顺序) */

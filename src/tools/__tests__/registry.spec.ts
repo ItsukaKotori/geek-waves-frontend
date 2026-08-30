@@ -10,12 +10,12 @@ describe('toolRegistry 结构契约', () => {
 
   it('包含全部既有工具,key 唯一且分组顺序稳定', () => {
     expect(allKeys).toEqual([
-      'json', 'ts', 'b64', 'hash', 'radix', 'pwd', 'regex', 'jwt', 'markdown', 'diff', 'cron', 'http',
+      'json', 'ts', 'b64', 'hash', 'radix', 'pwd', 'regex', 'jwt', 'markdown', 'diff', 'cron', 'http', 'cidr',
     ])
   })
 
   it('分组顺序固定,新增分组按区块插入', () => {
-    expect(toolRegistry.map((g) => g.group)).toEqual(['编解码', '哈希/ID', '生成', '文本', '接口'])
+    expect(toolRegistry.map((g) => g.group)).toEqual(['编解码', '哈希/ID', '生成', '文本', '接口', '计算'])
   })
 
   it('每个条目 label/key 非空字符串', () => {
