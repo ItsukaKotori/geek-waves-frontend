@@ -93,7 +93,7 @@ const recentItems = computed(() =>
       </aside>
       <section class="min-w-0 flex-1">
         <div v-if="activeItem" class="rounded-box border border-base-300 bg-base-100 p-5 md:p-6">
-          <!-- KeepAlive 缓存全部 8 个工具的实例:切换不销毁,输入在切走再切回时保留 -->
+          <!-- KeepAlive 缓存注册表内全部工具的实例:切换不销毁,输入在切走再切回时保留 -->
           <KeepAlive>
             <component :is="activeItem.component" />
           </KeepAlive>

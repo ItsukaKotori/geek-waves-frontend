@@ -53,6 +53,16 @@ export const toolRegistry: ToolGroup[] = [
     ],
   },
   {
+    group: '生成',
+    items: [
+      {
+        key: 'pwd',
+        label: '密码/Token',
+        component: defineAsyncComponent(() => import('../components/tools/PasswordGenerator.vue')),
+      },
+    ],
+  },
+  {
     group: '文本',
     items: [
       {
