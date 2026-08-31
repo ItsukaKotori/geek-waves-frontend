@@ -63,6 +63,32 @@ describe('JsonFormatter 实时式交互(FE3)', () => {
     expect((back!.element as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('Kotlin 单向:生成 data class 且反向按钮禁用(自 codegen 工具合并)', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await pickTarget(w, 'kotlin')
+    await w.find('textarea').setValue('{"name":"x","stars":128}')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(preText(w)).toContain('data class Root(')
+    expect(preText(w)).toMatch(/val name: String,/)
+    expect(preText(w)).toMatch(/val stars: Long,/)
+    const back = w.findAll('button').find((b) => b.text() === '←')
+    expect((back!.element as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('Rust 单向:生成 serde struct', async () => {
+    vi.useFakeTimers()
+    const w = mount(JsonFormatter)
+    await pickTarget(w, 'rust')
+    await w.find('textarea').setValue('{"userName":"x"}')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(preText(w)).toContain('use serde::{Deserialize, Serialize};')
+    expect(preText(w)).toMatch(/#\[serde\(rename = "userName"\)\]/)
+    expect(preText(w)).toMatch(/user_name: String,/)
+  })
+
   it('「格式化」视图实时美化 JSON', async () => {
     vi.useFakeTimers()
     const w = mount(JsonFormatter)

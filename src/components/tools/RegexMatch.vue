@@ -17,6 +17,9 @@ import { watchDebounced } from '../../composables/useDebounce'
 import { useCopy } from '../../composables/useCopy'
 import { createRegexClient, type RegexOkPayload, type RegexRunOutcome } from './regexMatchClient'
 import { REGEX_PRESETS, findPreset } from './regexPresets'
+import PaneShell from '../tools-ui/PaneShell.vue'
+import PaneSeam from '../tools-ui/PaneSeam.vue'
+import CodeEditor from '../tools-ui/CodeEditor.vue'
 
 /** FE4 重做核心状态:Worker 异步回流 + 主线程护栏(superseded 静默、catastrophic 提示) */
 const pattern = ref('')
@@ -184,7 +187,6 @@ const replacementOut = computed(() => {
 
 <style scoped>
 .rgx-view {
-  max-height: 18rem;
   overflow: auto;
 }
 
@@ -204,8 +206,7 @@ const replacementOut = computed(() => {
 
 <template>
   <div class="rgx-root flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">正则视觉匹配</h2>
-
+    <!-- 工具栏:表达式 + 预设 + flags -->
     <div class="flex flex-col gap-2">
       <div class="flex gap-2">
         <input v-model="pattern" placeholder="要匹配的正则,如 (\d+)-(\d+)" class="input input-sm font-mono" />
@@ -237,104 +238,125 @@ const replacementOut = computed(() => {
         </button>
         <span v-if="busy" class="ml-2 badge badge-ghost badge-sm">计算中…</span>
       </div>
-      <textarea
-        v-model="text"
-        rows="8"
-        placeholder="在此输入待匹配的文本"
-        class="textarea textarea-bordered font-mono"
-      />
     </div>
 
-    <p v-if="guardMessage" class="text-error text-sm">{{ guardMessage }}</p>
-    <p v-if="invalidMessage" class="text-error text-sm">正则表达式非法:{{ invalidMessage }}</p>
-
-    <div v-if="okPayload?.truncated" class="text-warning text-sm">
-      文本超过 200KB,仅前 {{ TEXT_CHAR_LIMIT }} 字符参与匹配(原长 {{ okPayload.originalLength }})
-    </div>
-    <div v-if="okPayload?.capped" class="text-warning text-sm">
-      匹配数量达到上限 {{ MATCH_COUNT_LIMIT }},超出部分已截断
-    </div>
-
-    <template v-if="hasResult">
-      <pre
-        class="rgx-view whitespace-pre-wrap break-all rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm"
-        @mouseleave="markHovered(null)"
-        ><template v-for="(leaf, i) in leaves" :key="i"><span
-          v-if="leaf.matchOrdinal !== null"
-          class="rgx-seg rgx-seg-match rounded-sm px-[1px]"
-          :class="{ 'rgx-active': hoveredOrdinal === leaf.matchOrdinal, 'rgx-has-group': leaf.groupNumbers.length > 0 }"
-          :style="segStyle(leaf)"
-          @mouseenter="markHovered(leaf.matchOrdinal)"
-        >{{ leaf.text }}</span><template v-else>{{ leaf.text }}</template></template></pre>
-
-      <p v-if="matchedCount === 0" class="text-sm opacity-60">未匹配到任何内容</p>
-
-      <template v-else>
-        <p class="font-semibold text-sm">共 {{ matchedCount }} 处匹配</p>
-        <div class="overflow-x-auto">
-          <table class="table table-xs font-mono">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>匹配</th>
-                <th>位置</th>
-                <th v-for="col in groupColumns" :key="col.number">{{ col.label }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(rec, idx) in records"
-                :key="idx"
-                :data-testid="`match-row-${idx}`"
-                class="cursor-default"
-                @mouseenter="markHovered(idx)"
-                @mouseleave="markHovered(null)"
-              >
-                <td>{{ idx + 1 }}</td>
-                <td class="whitespace-pre">{{ rec.value }}</td>
-                <td data-testid="match-position" class="whitespace-nowrap font-sans">
-                  第 {{ rowPositions[idx]?.line }} 行 第 {{ rowPositions[idx]?.column }} 列
-                </td>
-                <td
-                  v-for="col in groupColumns"
-                  :key="col.number"
-                  :data-testid="`group-cell-${col.number}`"
-                  class="whitespace-pre"
-                  >{{ rec.groups[col.number - 1]?.value ?? '' }}</td
-                >
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
-
-      <div class="flex flex-col gap-2 border-t border-base-300 pt-3">
-        <label class="flex items-center gap-2 text-sm">
-          <span class="shrink-0 opacity-70">替换模板</span>
-          <input
-            v-model="replacementTemplate"
-            data-testid="replacement-input"
-            placeholder="支持 $1、${name},如 [$1]-${name}"
-            class="input input-sm flex-1 font-mono"
-          />
-        </label>
-        <template v-if="replacementOut !== null">
-          <pre
-            class="rgx-view max-h-40 whitespace-pre-wrap break-all rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm"
-            >{{ replacementOut.output }}</pre
-          >
-          <div class="flex items-center gap-2 text-sm">
-            <span>共 {{ replacementOut.replacedCount }} 处替换</span>
-            <button type="button" data-testid="copy-replacement" class="btn btn-xs btn-ghost" @click="copy(replacementOut.output)">
-              {{ copied ? '已复制' : '复制' }}
-            </button>
-          </div>
+    <!-- 双栏工作台:待匹配文本 / 匹配视图 -->
+    <div class="grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
+      <PaneShell label="待匹配文本" class="h-72">
+        <template #actions>
+          <button v-if="text" type="button" class="btn btn-ghost btn-xs" @click="text = ''">清空</button>
         </template>
-      </div>
-    </template>
+        <CodeEditor v-model="text" placeholder="在此输入待匹配的文本" aria-label="待匹配文本" />
+        <template #footer>
+          <span>{{ text.length }} 字符</span>
+        </template>
+      </PaneShell>
 
-    <p v-if="!hasResult && !invalidMessage && !guardMessage" class="text-sm opacity-50">
-      输入正则与文本后实时显示匹配结果,Ctrl+Enter 立即重算
-    </p>
+      <PaneSeam direction="lr" />
+
+      <PaneShell label="匹配视图" :badge="hasResult ? `共 ${matchedCount} 处匹配` : undefined" class="h-72">
+        <div class="relative h-full">
+          <pre
+            v-if="hasResult"
+            class="rgx-view h-full whitespace-pre-wrap break-all p-3 font-mono text-sm"
+            @mouseleave="markHovered(null)"
+            ><template v-for="(leaf, i) in leaves" :key="i"><span
+              v-if="leaf.matchOrdinal !== null"
+              class="rgx-seg rgx-seg-match rounded-sm px-[1px]"
+              :class="{ 'rgx-active': hoveredOrdinal === leaf.matchOrdinal, 'rgx-has-group': leaf.groupNumbers.length > 0 }"
+              :style="segStyle(leaf)"
+              @mouseenter="markHovered(leaf.matchOrdinal)"
+            >{{ leaf.text }}</span><template v-else>{{ leaf.text }}</template></template></pre>
+          <p
+            v-else-if="!invalidMessage && !guardMessage"
+            class="pointer-events-none absolute inset-0 flex items-center justify-center px-3 text-center font-mono text-xs text-base-content/35"
+          >
+            输入正则与文本后实时显示匹配结果
+          </p>
+        </div>
+        <template #footer>
+          <span v-if="guardMessage" class="text-error">{{ guardMessage }}</span>
+          <span v-else-if="invalidMessage" class="text-error">正则表达式非法:{{ invalidMessage }}</span>
+          <span v-else-if="okPayload?.truncated" class="text-warning">
+            文本超过 200KB,仅前 {{ TEXT_CHAR_LIMIT }} 字符参与匹配(原长 {{ okPayload.originalLength }})
+          </span>
+          <span v-else-if="okPayload?.capped" class="text-warning">
+            匹配数量达到上限 {{ MATCH_COUNT_LIMIT }},超出部分已截断
+          </span>
+        </template>
+      </PaneShell>
+    </div>
+
+    <!-- 匹配列表:每行一个匹配 + 捕获组列 -->
+    <PaneShell v-if="hasResult && matchedCount > 0" label="匹配列表" badge="悬行高亮">
+      <div class="overflow-x-auto">
+        <table class="table table-xs font-mono">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>匹配</th>
+              <th>位置</th>
+              <th v-for="col in groupColumns" :key="col.number">{{ col.label }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(rec, idx) in records"
+              :key="idx"
+              :data-testid="`match-row-${idx}`"
+              class="cursor-default"
+              @mouseenter="markHovered(idx)"
+              @mouseleave="markHovered(null)"
+            >
+              <td>{{ idx + 1 }}</td>
+              <td class="whitespace-pre">{{ rec.value }}</td>
+              <td data-testid="match-position" class="whitespace-nowrap font-sans">
+                第 {{ rowPositions[idx]?.line }} 行 第 {{ rowPositions[idx]?.column }} 列
+              </td>
+              <td
+                v-for="col in groupColumns"
+                :key="col.number"
+                :data-testid="`group-cell-${col.number}`"
+                class="whitespace-pre"
+                >{{ rec.groups[col.number - 1]?.value ?? '' }}</td
+              >
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </PaneShell>
+
+    <p v-if="hasResult && matchedCount === 0" class="text-sm opacity-60">未匹配到任何内容</p>
+
+    <!-- 替换预览 -->
+    <PaneShell v-if="hasResult" label="替换预览" badge="$1 / ${name}">
+      <div class="flex flex-col gap-2 p-3">
+        <input
+          v-model="replacementTemplate"
+          data-testid="replacement-input"
+          placeholder="支持 $1、${name},如 [$1]-${name}"
+          aria-label="替换模板"
+          class="input input-sm font-mono"
+        />
+        <pre
+          v-if="replacementOut !== null"
+          class="rgx-view max-h-40 whitespace-pre-wrap break-all rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm"
+          >{{ replacementOut.output }}</pre
+        >
+      </div>
+      <template #footer>
+        <template v-if="replacementOut !== null">
+          <span>共 {{ replacementOut.replacedCount }} 处替换</span>
+          <button
+            type="button"
+            data-testid="copy-replacement"
+            class="btn btn-ghost btn-xs ml-auto"
+            @click="copy(replacementOut.output)"
+          >
+            {{ copied ? '已复制' : '复制' }}
+          </button>
+        </template>
+      </template>
+    </PaneShell>
   </div>
 </template>

@@ -2,7 +2,7 @@
  * 多格式 ↔ JSON 转换(纯函数,前端本地计算)。
  *
  * 双向(可靠往返):YAML / TOML / XML / Properties / Java / Go
- * 仅 JSON → 语言(生成,不反向):TypeScript 接口 / SQL INSERT
+ * 仅 JSON → 语言(生成,不反向):TypeScript 接口 / Kotlin data class / Rust struct / SQL INSERT
  * XML 为有损(标记语言不表达类型,仅尽力),数组/标量类型可能有丢失。
  */
 import yaml from 'yaml'
@@ -463,6 +463,201 @@ function sqlLit(v: unknown): string {
   return `'${String(v).replace(/'/g, "''")}'`
 }
 
+/* --------------- Kotlin data class / Rust struct(只生成) ----------------- *
+ * 口径:顶层须为对象;根类型名 Root;数组取首元素类型;空数组给宽类型;
+ * 整数(64 位范围内)→ Long/i64,浮点 → Double/f64;null → Any?/serde_json::Value;
+ * 嵌套对象 → 扁平顶层声明,类名取字段名 PascalCase,冲突按出现顺序加序号;
+ * 声明顺序根在前、深度优先。字段恒必填,可空性仅在观察到 null 时表达。
+ */
+
+interface StructDef {
+  name: string
+  obj: Record<string, unknown>
+}
+
+/** 2^63:超出即按浮点处理(JS 侧 2^63 可精确表示,2^63-1 不可) */
+const I64_LIMIT = 2 ** 63
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+}
+
+function pascalCase(key: string): string {
+  const parts = key.split(/[^\p{L}\p{Nd}]+/u).filter((p) => p !== '')
+  if (!parts.length) return '_'
+  return parts.map((p) => p[0]!.toUpperCase() + p.slice(1)).join('')
+}
+
+/**
+ * 深度优先收集所有对象节点为类型声明(数组取首元素深入)。
+ * 类型名:根 Root,嵌套取字段名 PascalCase,冲突追加序号。
+ */
+function collectStructs(root: Record<string, unknown>): { structs: StructDef[]; names: Map<object, string> } {
+  const structs: StructDef[] = []
+  const names = new Map<object, string>()
+  const used = new Set<string>()
+
+  const unique = (base: string): string => {
+    let name = base
+    let i = 2
+    while (used.has(name)) name = `${base}${i++}`
+    used.add(name)
+    return name
+  }
+
+  const walkValue = (v: unknown, hint: string): void => {
+    if (isPlainObject(v)) {
+      if (names.has(v)) return
+      const name = unique(hint)
+      names.set(v, name)
+      structs.push({ name, obj: v })
+      for (const [k, child] of Object.entries(v)) walkValue(child, pascalCase(k))
+    } else if (Array.isArray(v) && v.length > 0) {
+      walkValue(v[0], hint)
+    }
+  }
+
+  const rootName = unique('Root')
+  names.set(root, rootName)
+  structs.push({ name: rootName, obj: root })
+  for (const [k, child] of Object.entries(root)) walkValue(child, pascalCase(k))
+  return { structs, names }
+}
+
+function parseObject(text: string, lang: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(text)
+  if (!isPlainObject(value)) {
+    throw new Error(`${lang} 类型生成需要顶层为对象`)
+  }
+  return value
+}
+
+const KOTLIN_HARD_KEYWORDS = new Set([
+  'as', 'break', 'class', 'continue', 'do', 'else', 'false', 'for', 'fun', 'if', 'in',
+  'interface', 'is', 'null', 'object', 'package', 'return', 'super', 'this', 'throw',
+  'true', 'try', 'typealias', 'typeof', 'val', 'var', 'when', 'while',
+])
+
+function kotlinFieldPlan(key: string, used: Set<string>): string {
+  // 反引号内标识名(反引号不改变标识符身份,去重须按未加反引号的名字):反引号/换行净化为 _
+  let name = key.replace(/[`\r\n]/g, '_')
+  // 单下划线为 Kotlin 保留名(反引号亦不可用);空名同样非法 —— 一律归一为 __ 再参与去重
+  if (name === '' || name === '_') name = '__'
+  const plain = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) && !KOTLIN_HARD_KEYWORDS.has(key) && key !== '_'
+  if (used.has(name)) {
+    let i = 2
+    while (used.has(`${name}${i}`)) i++
+    name = `${name}${i}`
+  }
+  used.add(name)
+  return plain ? name : `\`${name}\``
+}
+
+function kotlinNumber(v: number): string {
+  return Number.isInteger(v) && v < I64_LIMIT && v >= -I64_LIMIT ? 'Long' : 'Double'
+}
+
+function kotlinType(v: unknown, names: Map<object, string>): string {
+  if (v === null || v === undefined) return 'Any?'
+  if (typeof v === 'string') return 'String'
+  if (typeof v === 'boolean') return 'Boolean'
+  if (typeof v === 'number') return kotlinNumber(v)
+  if (Array.isArray(v)) {
+    return v.length ? `List<${kotlinType(v[0], names)}>` : 'List<Any?>'
+  }
+  return names.get(v) ?? 'Any?'
+}
+
+function kotlinFromJson(text: string): string {
+  const root = parseObject(text, 'Kotlin')
+  const { structs, names } = collectStructs(root)
+  return (
+    structs
+      .map(({ name, obj }) => {
+        const keys = Object.keys(obj)
+        if (!keys.length) return `data class ${name}()`
+        // 同一结构体内字段名去重(归一化/转义可能折叠不同键),避免产出不编译的重复属性
+        const used = new Set<string>()
+        const fields = keys
+          .map((k) => `    val ${kotlinFieldPlan(k, used)}: ${kotlinType(obj[k], names)},`)
+          .join('\n')
+        return `data class ${name}(\n${fields}\n)`
+      })
+      .join('\n\n') + '\n'
+  )
+}
+
+const RUST_KEYWORDS = new Set([
+  'as', 'break', 'const', 'continue', 'crate', 'else', 'enum', 'extern', 'false', 'fn',
+  'for', 'if', 'impl', 'in', 'let', 'loop', 'match', 'mod', 'move', 'mut', 'pub', 'ref',
+  'return', 'self', 'Self', 'static', 'struct', 'super', 'trait', 'true', 'type',
+  'unsafe', 'use', 'where', 'while', 'async', 'await', 'dyn', 'abstract', 'become',
+  'box', 'do', 'final', 'macro', 'override', 'priv', 'typeof', 'unsized', 'virtual',
+  'yield', 'try',
+])
+
+/** camelCase / PascalCase / 缩略词连写 → snake_case;非标识符字符净化为 _ */
+function toSnakeCase(key: string): string {
+  let s = key
+    .replace(/([\p{Ll}\p{Nd}])(\p{Lu})/gu, '$1_$2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1_$2')
+    .replace(/[^\p{ID_Continue}]+/gu, '_')
+  if (/^\p{Nd}/u.test(s)) s = `_${s}`
+  s = s.toLowerCase()
+  if (s === '' || s === '_') s = '__'
+  return s
+}
+
+function rustFieldPlan(key: string, used: Set<string>): { name: string; rename: string | null } {
+  let name = toSnakeCase(key)
+  if (RUST_KEYWORDS.has(name)) name = `${name}_`
+  // 同一结构体内字段名去重(snake 化/关键字逃逸可能折叠不同键);
+  // rename 恒指向原键,序号化后的字段仍可反序列化原 JSON
+  if (used.has(name)) {
+    let i = 2
+    while (used.has(`${name}${i}`)) i++
+    name = `${name}${i}`
+  }
+  used.add(name)
+  return { name, rename: name === key ? null : key }
+}
+
+function rustNumber(v: number): string {
+  return Number.isInteger(v) && v < I64_LIMIT && v >= -I64_LIMIT ? 'i64' : 'f64'
+}
+
+function rustType(v: unknown, names: Map<object, string>): string {
+  if (v === null || v === undefined) return 'serde_json::Value'
+  if (typeof v === 'string') return 'String'
+  if (typeof v === 'boolean') return 'bool'
+  if (typeof v === 'number') return rustNumber(v)
+  if (Array.isArray(v)) {
+    return v.length ? `Vec<${rustType(v[0], names)}>` : 'Vec<serde_json::Value>'
+  }
+  return names.get(v) ?? 'serde_json::Value'
+}
+
+function rustFromJson(text: string): string {
+  const root = parseObject(text, 'Rust')
+  const { structs, names } = collectStructs(root)
+  const body = structs
+    .map(({ name, obj }) => {
+      const keys = Object.keys(obj)
+      if (!keys.length) return `struct ${name} {}`
+      const used = new Set<string>()
+      const fields = keys
+        .map((k) => {
+          const { name: field, rename } = rustFieldPlan(k, used)
+          const attr = rename === null ? '' : `    #[serde(rename = ${JSON.stringify(rename)})]\n`
+          return `${attr}    ${field}: ${rustType(obj[k], names)},`
+        })
+        .join('\n')
+      return `#[derive(Debug, Serialize, Deserialize)]\nstruct ${name} {\n${fields}\n}`
+    })
+    .join('\n\n')
+  return `use serde::{Deserialize, Serialize};\n\n${body}\n`
+}
+
 /* ----------------------------- TOML / YAML -------------------------------- */
 
 function tomlToJson(text: string): string {
@@ -522,6 +717,16 @@ export const converters: FormatConverter[] = [
   {
     id: 'go', label: 'Go',
     toJson: (t) => codeToJson(t, GO), fromJson: (t) => goObjectToLiteral(toObj(t), 0),
+  },
+  {
+    id: 'kotlin', label: 'Kotlin',
+    toJson: () => { throw new Error('Kotlin 类型生成不支持反向解析,请选择「JSON → Kotlin」方向') },
+    fromJson: kotlinFromJson,
+  },
+  {
+    id: 'rust', label: 'Rust',
+    toJson: () => { throw new Error('Rust 类型生成不支持反向解析,请选择「JSON → Rust」方向') },
+    fromJson: rustFromJson,
   },
   {
     id: 'ts', label: 'TypeScript 接口',

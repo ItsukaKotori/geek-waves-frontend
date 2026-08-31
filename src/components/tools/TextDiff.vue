@@ -10,6 +10,9 @@ import {
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
 import ErrorBanner from '../ui/ErrorBanner.vue'
+import PaneShell from '../tools-ui/PaneShell.vue'
+import CodeEditor from '../tools-ui/CodeEditor.vue'
+import PaneSeam from '../tools-ui/PaneSeam.vue'
 
 /**
  * 文本 diff(FE10 T2 批次一):行级 LCS(Hirschberg 线性空间)双栏对照。
@@ -78,65 +81,73 @@ watch(
     }
   },
 )
+
+/** 中缝动作:交换两侧文本 */
+function swapSides(): void {
+  ;[state.oldText, state.newText] = [state.newText, state.oldText]
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow" @keydown.meta.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">文本 diff</h2>
+    <!-- 双输入工作台:旧 / 新两栏,中缝可交换两侧 -->
+    <div class="grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
+      <PaneShell label="旧文本" class="h-64">
+        <template #actions>
+          <button v-if="state.oldText" type="button" class="btn btn-ghost btn-xs" @click="state.oldText = ''">清空</button>
+        </template>
+        <CodeEditor v-model="state.oldText" testid="diff-old" placeholder="原始文本" aria-label="原始文本" />
+        <template #footer>
+          <span>{{ state.oldText.length }} 字符</span>
+        </template>
+      </PaneShell>
 
-    <div class="grid gap-3 md:grid-cols-2">
-      <label class="flex flex-col gap-1">
-        <span class="text-xs opacity-60">旧文本</span>
-        <textarea
-          v-model="state.oldText"
-          data-testid="diff-old"
-          rows="8"
-          placeholder="原始文本"
-          class="textarea textarea-bordered font-mono"
-        />
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="text-xs opacity-60">新文本</span>
-        <textarea
-          v-model="state.newText"
-          data-testid="diff-new"
-          rows="8"
-          placeholder="修改后文本"
-          class="textarea textarea-bordered font-mono"
-        />
-      </label>
+      <PaneSeam swap swap-title="交换两侧文本" @swap="swapSides" />
+
+      <PaneShell label="新文本" class="h-64">
+        <template #actions>
+          <button v-if="state.newText" type="button" class="btn btn-ghost btn-xs" @click="state.newText = ''">清空</button>
+        </template>
+        <CodeEditor v-model="state.newText" testid="diff-new" placeholder="修改后文本" aria-label="修改后文本" />
+        <template #footer>
+          <span>{{ state.newText.length }} 字符</span>
+        </template>
+      </PaneShell>
     </div>
 
     <ErrorBanner :message="tooLarge" variant="warning" />
 
-    <template v-if="hasResult">
-      <div data-testid="diff-stats" class="flex flex-wrap items-center gap-2 text-sm">
-        <span class="badge badge-ghost badge-sm">未变 {{ stats.equal }}</span>
-        <span class="badge badge-success badge-soft badge-sm">新增 {{ stats.add }}</span>
-        <span class="badge badge-error badge-soft badge-sm">删除 {{ stats.del }}</span>
-      </div>
-
-      <div
-        data-testid="diff-rows"
-        class="max-h-96 overflow-auto rounded border border-base-300 bg-base-200/40 font-mono text-xs leading-5"
-      >
-        <div
-          v-for="(row, i) in rows"
-          :key="i"
-          class="grid grid-cols-[3rem_1fr_3rem_1fr]"
-          :data-row-type="row.type"
-          :class="row.type === 'del' ? 'bg-error/10 text-error' : row.type === 'add' ? 'bg-success/10 text-success' : 'text-base-content/60'"
-        >
-          <span class="select-none border-r border-base-300 px-1 text-right opacity-50">{{ row.aNo ?? '' }}</span>
-          <span class="whitespace-pre-wrap break-all border-r border-base-300 px-2">{{ row.type === 'add' ? '' : row.text }}</span>
-          <span class="select-none border-r border-base-300 px-1 text-right opacity-50">{{ row.bNo ?? '' }}</span>
-          <span class="whitespace-pre-wrap break-all px-2">{{ row.type === 'del' ? '' : row.text }}</span>
+    <PaneShell label="对比结果" :badge="hasResult ? `${stats.add + stats.del} 处差异` : undefined">
+      <template v-if="hasResult">
+        <div data-testid="diff-stats" class="flex flex-wrap items-center gap-2 border-b border-base-300 px-3 py-2 text-sm">
+          <span class="badge badge-ghost badge-sm">未变 {{ stats.equal }}</span>
+          <span class="badge badge-success badge-soft badge-sm">新增 {{ stats.add }}</span>
+          <span class="badge badge-error badge-soft badge-sm">删除 {{ stats.del }}</span>
         </div>
-      </div>
-    </template>
-
-    <p v-else-if="!tooLarge" class="text-sm opacity-50">
-      两侧输入文本后实时对比,Ctrl+Enter 立即重算;行级 LCS 对齐,新增/删除/未变分色区分
-    </p>
+        <div
+          data-testid="diff-rows"
+          class="max-h-96 overflow-auto bg-base-200/40 font-mono text-xs leading-5"
+        >
+          <div
+            v-for="(row, i) in rows"
+            :key="i"
+            class="grid grid-cols-[3rem_1fr_3rem_1fr]"
+            :data-row-type="row.type"
+            :class="row.type === 'del' ? 'bg-error/10 text-error' : row.type === 'add' ? 'bg-success/10 text-success' : 'text-base-content/60'"
+          >
+            <span class="select-none border-r border-base-300 px-1 text-right opacity-50">{{ row.aNo ?? '' }}</span>
+            <span class="whitespace-pre-wrap break-all border-r border-base-300 px-2">{{ row.type === 'add' ? '' : row.text }}</span>
+            <span class="select-none border-r border-base-300 px-1 text-right opacity-50">{{ row.bNo ?? '' }}</span>
+            <span class="whitespace-pre-wrap break-all px-2">{{ row.type === 'del' ? '' : row.text }}</span>
+          </div>
+        </div>
+      </template>
+      <p v-else-if="!tooLarge" class="flex h-full min-h-20 items-center justify-center px-3 text-center font-mono text-xs text-base-content/35">
+        两侧输入文本后实时对比,行级 LCS 对齐,新增 / 删除 / 未变分色区分
+      </p>
+      <template #footer>
+        <span v-if="!hasResult && !tooLarge" class="text-base-content/40">Ctrl+Enter 立即重算</span>
+      </template>
+    </PaneShell>
   </div>
 </template>

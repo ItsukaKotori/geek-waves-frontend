@@ -8,14 +8,19 @@ import { resolveToolKey, toolRegistry } from '../registry'
 describe('toolRegistry 结构契约', () => {
   const allKeys = toolRegistry.flatMap((g) => g.items.map((i) => i.key))
 
-  it('包含全部既有工具,key 唯一且分组顺序稳定', () => {
+  it('包含全部既有工具(Markdown 预览已移除),key 唯一且分组顺序稳定', () => {
     expect(allKeys).toEqual([
-      'json', 'codegen', 'ts', 'b64', 'hash', 'radix', 'pwd', 'regex', 'jwt', 'markdown', 'diff', 'cron', 'http', 'cidr', 'color',
+      'json', 'diff',
+      'b64', 'hash', 'jwt',
+      'ts', 'radix', 'color',
+      'http', 'cidr',
+      'regex', 'cron',
+      'pwd',
     ])
   })
 
-  it('分组顺序固定,新增分组按区块插入', () => {
-    expect(toolRegistry.map((g) => g.group)).toEqual(['编解码', '哈希/ID', '生成', '文本', '接口', '计算'])
+  it('分组顺序固定(参考站口径),新增分组按区块插入', () => {
+    expect(toolRegistry.map((g) => g.group)).toEqual(['格式化', '编解码', '转换', '网络', '开发', '生成'])
   })
 
   it('每个条目 label/key 非空字符串', () => {

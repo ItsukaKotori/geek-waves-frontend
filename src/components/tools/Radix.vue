@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { radixFormat, radixParse } from '../../tools/radix'
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
+import PaneShell from '../tools-ui/PaneShell.vue'
 
 const STANDARD_BASES = [2, 8, 10, 16]
 
@@ -105,35 +106,38 @@ watch(
 
 <template>
   <div class="tool-root flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">进制转换</h2>
-
-    <div class="grid gap-1.5">
-      <div v-for="row in rows" :key="row.id" class="flex items-center gap-2">
-        <span class="w-24 shrink-0 text-xs opacity-60">{{ row.label }}</span>
-        <input
-          :aria-label="row.id === 'custom' ? '自定义进制' : row.label"
-          :value="rowTexts[row.id] ?? ''"
-          placeholder="输入即联动其余进制"
-          class="input input-sm min-w-0 flex-1 font-mono"
-          @input="onEdit(row, $event)"
-        />
-      </div>
-    </div>
-
-    <div class="flex flex-wrap items-center gap-4">
+    <!-- 工具栏:自定义基数与分组显示 -->
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
       <label class="flex items-center gap-2 text-sm">
         自定义基数
         <select v-model.number="state.custom" aria-label="自定义进制基数" class="select select-sm w-24">
           <option v-for="b in customOptions" :key="b" :value="b">{{ b }}</option>
         </select>
       </label>
-      <label class="cursor-pointer items-center gap-2 text-sm">
-        <input v-model="state.group" type="checkbox" class="checkbox checkbox-sm align-middle" />
+      <label class="flex cursor-pointer items-center gap-2 text-sm">
+        <input v-model="state.group" type="checkbox" class="checkbox checkbox-xs align-middle" />
         字节分组显示
       </label>
     </div>
 
-    <p v-if="error" class="text-error text-sm">{{ error }}</p>
-    <span class="text-xs opacity-50">输入后实时联动,Ctrl+Enter 立即重算</span>
+    <!-- 联动面板:每行一个进制,输入任一行其余行实时联动 -->
+    <PaneShell label="进制联动" badge="2 ~ 36">
+      <div class="grid gap-1.5 p-3">
+        <div v-for="row in rows" :key="row.id" class="flex items-center gap-2">
+          <span class="w-24 shrink-0 text-xs opacity-60">{{ row.label }}</span>
+          <input
+            :aria-label="row.id === 'custom' ? '自定义进制' : row.label"
+            :value="rowTexts[row.id] ?? ''"
+            placeholder="输入即联动其余进制"
+            class="input input-sm min-w-0 flex-1 font-mono"
+            @input="onEdit(row, $event)"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <span v-if="error" class="text-error">{{ error }}</span>
+        <span v-else class="text-base-content/40">输入后实时联动,Ctrl+Enter 立即重算</span>
+      </template>
+    </PaneShell>
   </div>
 </template>

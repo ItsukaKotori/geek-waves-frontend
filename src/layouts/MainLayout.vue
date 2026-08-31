@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { RouterLink, RouterView, useRouter } from 'vue-router'
-import type { RouteLocationNormalizedLoaded } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
 import ThemeToggleButton from '../components/ThemeToggleButton.vue'
+import ToolRail from '../components/ToolRail.vue'
 import CommandPalette from '../components/ui/CommandPalette.vue'
-import { toolRegistry, resolveToolKey } from '../tools/registry'
+import { toolRegistry } from '../tools/registry'
+import { useToolNavigation } from '../tools/toolNavigation'
 import type { CommandItem } from '../types/command'
 
 interface NavItem {
@@ -34,27 +36,12 @@ const NAV_CLASS =
 /**
  * 命令面板「工具直达」数据源(T1c):与侧栏同一注册表派生,选中语义一致 ——
  * 工具页内 replace ?tool=(已激活跳过,防堆历史);跨页调起 push 保留返回路径。
- * 最近使用无需单独记录:?tool= 变化由 ToolsView 的 query watch 同源计入。
  */
-const router = useRouter()
+const route = useRoute()
+const { navigateToTool } = useToolNavigation()
 
-/**
- * 侧栏的「实际激活工具」语义(与 ToolsView.activeItem 对齐,共用 resolveToolKey):
- * ?tool= 缺失或非法时回落到注册表首项,保证「选中已激活工具 = 无操作」判断一致。
- */
-function resolvedToolKey(route: RouteLocationNormalizedLoaded): string {
-  return resolveToolKey(route.query.tool)
-}
-
-function navigateToTool(key: string): void {
-  const current = router.currentRoute.value
-  if (current.path === '/tools') {
-    if (resolvedToolKey(current) === key) return
-    void router.replace({ query: { ...current.query, tool: key } })
-    return
-  }
-  void router.push({ path: '/tools', query: { tool: key } })
-}
+/** 方案 A 交互:/tools 路由下「工具」项展开工具列表,其余路由收起保持紧凑 */
+const isToolsRoute = computed(() => route.path === '/tools')
 
 const toolCommands: CommandItem[] = toolRegistry.flatMap((g) =>
   g.items.map((t) => ({
@@ -102,7 +89,7 @@ const toolCommands: CommandItem[] = toolRegistry.flatMap((g) =>
 
     <div class="drawer-side z-50">
       <label for="gws-nav" aria-label="关闭导航" class="drawer-overlay"></label>
-      <aside class="flex min-h-full w-60 flex-col border-r border-base-300 bg-base-100">
+      <aside class="flex h-screen w-60 flex-col border-r border-base-300 bg-base-100">
         <div class="flex items-center gap-2.5 px-5 pb-6 pt-7">
           <svg viewBox="0 0 24 24" fill="none" class="h-6 w-6 shrink-0" aria-hidden="true">
             <path
@@ -117,7 +104,7 @@ const toolCommands: CommandItem[] = toolRegistry.flatMap((g) =>
           <span class="text-lg font-semibold tracking-tight">GeekWaves</span>
         </div>
 
-        <nav class="flex flex-1 flex-col gap-1 px-3">
+        <nav class="flex min-h-0 flex-1 flex-col gap-1 px-3">
           <p class="px-3 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-base-content/50">主要</p>
           <RouterLink v-for="item in PRIMARY_NAV" :key="item.to" :to="item.to" :class="NAV_CLASS">
             <svg
@@ -135,20 +122,30 @@ const toolCommands: CommandItem[] = toolRegistry.flatMap((g) =>
           </RouterLink>
 
           <p class="px-3 pb-1 pt-5 text-xs font-medium uppercase tracking-wider text-base-content/50">系统</p>
-          <RouterLink v-for="item in SYSTEM_NAV" :key="item.to" :to="item.to" :class="NAV_CLASS">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="h-4 w-4 shrink-0"
-            >
-              <path :d="item.icon" />
-            </svg>
-            {{ item.label }}
-          </RouterLink>
+          <template v-for="item in SYSTEM_NAV" :key="item.to">
+            <RouterLink :to="item.to" :class="NAV_CLASS">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="h-4 w-4 shrink-0"
+              >
+                <path :d="item.icon" />
+              </svg>
+              {{ item.label }}
+              <span
+                v-if="isToolsRoute && item.to === '/tools'"
+                class="ml-auto text-[10px] text-base-content/40"
+                aria-hidden="true"
+                >▾</span
+              >
+            </RouterLink>
+            <!-- 工具选择聚合(方案 A):仅 /tools 路由展开,列表自身内部滚动 -->
+            <ToolRail v-if="isToolsRoute && item.to === '/tools'" />
+          </template>
         </nav>
 
         <div class="flex items-center justify-between border-t border-base-300 px-5 py-4">

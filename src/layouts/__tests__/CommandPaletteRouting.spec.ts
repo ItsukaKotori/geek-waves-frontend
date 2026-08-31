@@ -6,11 +6,10 @@ import { nextTick } from 'vue'
 import MainLayout from '../MainLayout.vue'
 import ToolsView from '../../views/ToolsView.vue'
 import { createPinia } from 'pinia'
-import { RECENT_TOOLS_STORAGE_KEY } from '../../composables/useRecentTools'
 
 /**
  * 命令面板应用级挂载(MainLayout)集成:选中条目走与侧栏一致的导航语义 —
- * ?tool= 同步 + 最近使用同源计入;面板全局可用(非工具页亦可调起)。
+ * ?tool= 同步;面板全局可用(非工具页亦可调起)。
  */
 
 const wrappers: VueWrapper[] = []
@@ -89,7 +88,7 @@ afterEach(() => {
 })
 
 describe('T1c 全局调起与选中后的选择语义', () => {
-  it('非工具页(monitor)Ctrl+K 搜索并 Enter → 跳转 /tools?tool=radix,最近使用同源计入', async () => {
+  it('非工具页(monitor)Ctrl+K 搜索并 Enter → 跳转 /tools?tool=radix', async () => {
     const { wrapper, router } = await mountAt('/monitor')
     const anchor = document.querySelector('[data-test="monitor-anchor"]')
     if (!(anchor instanceof HTMLElement)) throw new Error('锚点不存在')
@@ -100,12 +99,6 @@ describe('T1c 全局调起与选中后的选择语义', () => {
     expect(router.currentRoute.value.path).toBe('/tools')
     expect(router.currentRoute.value.query.tool).toBe('radix')
     expect(wrapper.find('section h2').text()).toBe('进制转换')
-
-    // 最近使用与侧栏点击同源:?tool= 变化由 ToolsView 的 query watch 统一计入
-    const stored: Array<{ key: string }> = JSON.parse(
-      localStorage.getItem(RECENT_TOOLS_STORAGE_KEY) ?? '[]',
-    )
-    expect(stored[0]?.key).toBe('radix')
   })
 
   it('跨页调起用 push 保留返回路径(back 可回到来源页)', async () => {
@@ -149,7 +142,7 @@ describe('T1c 全局调起与选中后的选择语义', () => {
     expect(replaceSpy).not.toHaveBeenCalled()
     expect(pushSpy).not.toHaveBeenCalled()
     expect(router.currentRoute.value.query.tool).toBeUndefined()
-    expect(wrapper.find('section h2').text()).toBe('JSON 转换')
+    expect(wrapper.find('section h2').text()).toBe('JSON 工具')
   })
 
   it('工具页内切换保持侧栏的 replace 语义(不新增历史)', async () => {

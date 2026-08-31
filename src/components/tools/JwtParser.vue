@@ -10,6 +10,9 @@ import {
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
+import PaneShell from '../tools-ui/PaneShell.vue'
+import CodeEditor from '../tools-ui/CodeEditor.vue'
+import PaneSeam from '../tools-ui/PaneSeam.vue'
 
 interface JwtState {
   token: string
@@ -87,50 +90,75 @@ const fullText = computed(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">JWT 解析</h2>
-    <textarea
-      v-model="state.token"
-      rows="3"
-      placeholder="粘贴 JWT token(header.payload.signature)"
-      class="textarea textarea-bordered font-mono"
-    />
-    <div class="flex gap-2">
-      <button v-if="parsed" class="btn btn-sm btn-ghost" @click="copy(fullText)">
-        {{ copied ? '已复制' : '复制' }}
-      </button>
-      <span v-else class="self-center text-xs opacity-50">输入后实时解析,Ctrl+Enter 立即重算</span>
-    </div>
-    <p v-if="error" class="text-error text-sm">{{ error }}</p>
+  <div class="grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]" @keydown.ctrl.enter.prevent="recomputeNow">
+    <PaneShell label="输入" badge="JWT" class="h-56">
+      <template #actions>
+        <button v-if="state.token" type="button" class="btn btn-ghost btn-xs" @click="state.token = ''">清空</button>
+      </template>
+      <CodeEditor
+        v-model="state.token"
+        placeholder="粘贴 JWT token(header.payload.signature)"
+        aria-label="JWT token"
+      />
+      <template #footer>
+        <span>{{ state.token.length }} 字符</span>
+      </template>
+    </PaneShell>
 
-    <template v-if="parsed">
-      <div class="flex flex-wrap items-center gap-2">
-        <!-- alg 安全分级徽章:none/缺失=危险;注册表外或笔误=可疑;已注册=安全 -->
-        <span v-if="algBadge" class="badge" :class="algBadge.cls">{{ algBadge.text }}</span>
-        <!-- 验签提示:本工具仅解码,不校验签名 -->
-        <span class="badge badge-outline badge-warning">未验签 · 仅解码</span>
-        <span v-if="parsed.signatureEmpty" class="badge badge-error">签名为空</span>
-        <span :class="parsed.expired ? 'badge badge-error' : 'badge badge-success'">
-          {{ parsed.expired ? '已过期' : '未过期' }}
-        </span>
-        <span v-if="leftover" class="text-sm opacity-70">{{ leftover }}</span>
-      </div>
+    <PaneSeam direction="lr" />
 
-      <h3 class="text-sm font-semibold opacity-80">时间声明(iat/nbf/exp)</h3>
-      <div v-if="timeClaims.length" class="grid gap-1">
-        <div v-for="c in timeClaims" :key="c.claim" class="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <code class="w-28 shrink-0 rounded border border-base-300 bg-base-200/60 px-1.5 py-0.5 font-mono text-xs">{{ c.claim }}={{ c.s }}</code>
-          <code class="font-mono text-xs opacity-80">{{ c.iso }} UTC</code>
-          <code class="rounded px-1.5 py-0.5 font-mono text-xs text-primary">{{ c.relative }}</code>
+    <PaneShell label="解析结果" class="h-72 lg:h-full">
+      <template #actions>
+        <button v-if="parsed" type="button" class="btn btn-ghost btn-xs" @click="copy(fullText)">
+          {{ copied ? '已复制' : '复制' }}
+        </button>
+      </template>
+      <div class="h-full overflow-auto">
+        <p
+          v-if="!parsed"
+          class="flex h-full min-h-20 items-center justify-center px-3 text-center font-mono text-xs text-base-content/35"
+        >
+          输入后实时解析,Ctrl+Enter 立即重算
+        </p>
+        <div v-else class="flex flex-col gap-3 p-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- alg 安全分级徽章:none/缺失=危险;注册表外或笔误=可疑;已注册=安全 -->
+            <span v-if="algBadge" class="badge" :class="algBadge.cls">{{ algBadge.text }}</span>
+            <!-- 验签提示:本工具仅解码,不校验签名 -->
+            <span class="badge badge-outline badge-warning">未验签 · 仅解码</span>
+            <span v-if="parsed.signatureEmpty" class="badge badge-error">签名为空</span>
+            <span :class="parsed.expired ? 'badge badge-error' : 'badge badge-success'">
+              {{ parsed.expired ? '已过期' : '未过期' }}
+            </span>
+            <span v-if="leftover" class="text-sm opacity-70">{{ leftover }}</span>
+          </div>
+
+          <section class="flex flex-col gap-1.5">
+            <h3 class="text-xs font-medium tracking-wider text-base-content/50">时间声明(iat/nbf/exp)</h3>
+            <div v-if="timeClaims.length" class="grid gap-1">
+              <div v-for="c in timeClaims" :key="c.claim" class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <code class="w-28 shrink-0 rounded border border-base-300 bg-base-200/60 px-1.5 py-0.5 font-mono text-xs">{{ c.claim }}={{ c.s }}</code>
+                <code class="font-mono text-xs opacity-80">{{ c.iso }} UTC</code>
+                <code class="rounded px-1.5 py-0.5 font-mono text-xs text-primary">{{ c.relative }}</code>
+              </div>
+            </div>
+            <p v-else class="text-xs opacity-60">该 token 不含 iat/nbf/exp 声明</p>
+          </section>
+
+          <section class="flex flex-col gap-1.5">
+            <h3 class="text-xs font-medium tracking-wider text-base-content/50">Header</h3>
+            <pre class="whitespace-pre-wrap rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ JSON.stringify(parsed.header, null, 2) }}</pre>
+          </section>
+
+          <section class="flex flex-col gap-1.5">
+            <h3 class="text-xs font-medium tracking-wider text-base-content/50">Payload</h3>
+            <pre class="whitespace-pre-wrap rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ JSON.stringify(parsed.payload, null, 2) }}</pre>
+          </section>
         </div>
       </div>
-      <p v-else class="text-xs opacity-60">该 token 不含 iat/nbf/exp 声明</p>
-
-      <h3 class="text-sm font-semibold opacity-80">Header</h3>
-      <pre class="whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ JSON.stringify(parsed.header, null, 2) }}</pre>
-
-      <h3 class="text-sm font-semibold opacity-80">Payload</h3>
-      <pre class="whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ JSON.stringify(parsed.payload, null, 2) }}</pre>
-    </template>
+      <template #footer>
+        <span v-if="error" class="text-error">{{ error }}</span>
+      </template>
+    </PaneShell>
   </div>
 </template>

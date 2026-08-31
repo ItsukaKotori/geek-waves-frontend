@@ -77,6 +77,50 @@ describe('parseCurl(声明范围内常用形态)', () => {
     )
   })
 
+  it('-b/--cookie 映射为 Cookie 头(浏览器复制场景)', () => {
+    const cookie = 'Idea-628bf5a4=80e11667; _ga=GA1.1.416886449; session=abc'
+    for (const cmd of [
+      `curl -b '${cookie}' https://a.example.com`,
+      `curl --cookie '${cookie}' https://a.example.com`,
+      `curl --cookie='${cookie}' https://a.example.com`,
+      `curl -b${cookie.replaceAll(' ', '\\ ')} https://a.example.com`,
+    ]) {
+      const p = parseCurl(cmd)
+      expect(p.headers.Cookie).toBe(cookie)
+      expect(p.method).toBe('GET')
+    }
+  })
+
+  it('浏览器 DevTools 复制的整条 curl(含 --url/-b/多 -H)可解析', () => {
+    const p = parseCurl(
+      [
+        "curl --url 'http://localhost:5173/api/news/sources' \\",
+        "  -H 'Accept: application/json, text/plain, */*' \\",
+        "  -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8' \\",
+        "  -b 'Idea-628bf5a4=80e11667; _ga=GA1.1.416886449' \\",
+        "  -H 'Referer: http://localhost:5173/' \\",
+        "  -H 'sec-ch-ua-mobile: ?0' \\",
+        "  -H 'sec-ch-ua-platform: \"macOS\"'",
+      ].join('\n'),
+    )
+    expect(p.method).toBe('GET')
+    expect(p.url).toBe('http://localhost:5173/api/news/sources')
+    expect(p.headers.Cookie).toBe('Idea-628bf5a4=80e11667; _ga=GA1.1.416886449')
+    expect(p.headers.Referer).toBe('http://localhost:5173/')
+    expect(p.headers['sec-ch-ua-mobile']).toBe('?0')
+  })
+
+  it('-b cookie 文件形式(@file 与无 = 文件名)明确拒绝', () => {
+    expect(() => parseCurl('curl -b @cookies.txt https://a.example.com')).toThrow(/cookie/)
+    expect(() => parseCurl('curl -b cookies.txt https://a.example.com')).toThrow(/cookie/)
+  })
+
+  it('带值忽略的短旗标 -c(cookie-jar)/-o(output)放行不报错', () => {
+    const p = parseCurl('curl -c jar.txt -o out.json https://a.example.com')
+    expect(p.url).toBe('https://a.example.com')
+    expect(p.headers).toEqual({})
+  })
+
   it('单双引号嵌套与引号相邻拼接', () => {
     const p = parseCurl(
       String.raw`curl -H "X-Mix: a'b\"c" 'https://a.example.com/post?q=1&r=2'`,

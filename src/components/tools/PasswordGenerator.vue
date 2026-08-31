@@ -13,6 +13,7 @@ import {
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
 import ErrorBanner from '../ui/ErrorBanner.vue'
+import PaneShell from '../tools-ui/PaneShell.vue'
 
 /**
  * 密码/Token 生成器(FE10 T2 批次一):Web Crypto 拒绝采样,禁 Math.random。
@@ -132,81 +133,89 @@ function onReset(): void {
 
 <template>
   <div class="flex flex-col gap-3">
-    <h2 class="text-base font-semibold tracking-tight">密码 / Token 生成器</h2>
+    <div class="grid items-stretch gap-3 lg:grid-cols-2">
+      <PaneShell label="生成参数">
+        <template #actions>
+          <button type="button" data-testid="pwd-generate" class="btn btn-primary btn-xs" @click="generate">
+            再生成一批
+          </button>
+          <button type="button" class="btn btn-ghost btn-xs" @click="onReset">还原默认</button>
+        </template>
+        <div class="flex flex-col gap-3 p-3">
+          <div class="flex flex-wrap gap-1" role="group" aria-label="字符集选择">
+            <label
+              v-for="opt in charsetOptions"
+              :key="opt.key"
+              class="label cursor-pointer gap-1.5 rounded border border-base-300 px-2 py-1 text-sm"
+            >
+              <input
+                v-model="state[opt.key]"
+                type="checkbox"
+                :data-testid="`pwd-charset-${opt.key}`"
+                class="checkbox checkbox-xs"
+              />
+              <span class="font-mono">{{ opt.label }}</span>
+            </label>
+          </div>
 
-    <div class="grid gap-3 md:grid-cols-2">
-      <div class="flex flex-col gap-2">
-        <div class="flex flex-wrap gap-1" role="group" aria-label="字符集选择">
-          <label
-            v-for="opt in charsetOptions"
-            :key="opt.key"
-            class="label cursor-pointer gap-1.5 rounded border border-base-300 px-2 py-1 text-sm"
-          >
+          <label class="label cursor-pointer justify-start gap-2 text-sm">
             <input
-              v-model="state[opt.key]"
+              v-model="state.excludeAmbiguous"
               type="checkbox"
-              :data-testid="`pwd-charset-${opt.key}`"
+              data-testid="pwd-exclude"
               class="checkbox checkbox-xs"
             />
-            <span class="font-mono">{{ opt.label }}</span>
+            <span>排除易混淆字符(0O1lI)</span>
+          </label>
+
+          <label class="flex items-center gap-2 text-sm">
+            <span class="shrink-0 opacity-70">长度 {{ state.length }}</span>
+            <input
+              v-model.number="state.length"
+              type="range"
+              data-testid="pwd-length"
+              :min="PASSWORD_MIN_LENGTH"
+              :max="PASSWORD_MAX_LENGTH"
+              class="range range-primary range-xs flex-1"
+            />
+          </label>
+
+          <label class="flex items-center gap-2 text-sm">
+            <span class="shrink-0 opacity-70">批量</span>
+            <input
+              v-model.number="state.batch"
+              type="number"
+              data-testid="pwd-batch"
+              min="1"
+              max="50"
+              class="input input-sm w-20"
+            />
           </label>
         </div>
+        <template #footer>
+          <p v-if="strength" data-testid="pwd-strength" class="flex flex-wrap items-center gap-2">
+            <span>熵估算 ≈ {{ strength.bits.toFixed(1) }} bit</span>
+            <span class="badge badge-sm" :class="STRENGTH_BADGE[strength.tone]">{{ strength.label }}</span>
+            <span class="text-base-content/40">(池 {{ pool?.length }} 字符 × {{ state.length }} 位)</span>
+          </p>
+        </template>
+      </PaneShell>
 
-        <label class="label cursor-pointer justify-start gap-2 text-sm">
-          <input
-            v-model="state.excludeAmbiguous"
-            type="checkbox"
-            data-testid="pwd-exclude"
-            class="checkbox checkbox-xs"
-          />
-          <span>排除易混淆字符(0O1lI)</span>
-        </label>
-
-        <label class="flex items-center gap-2 text-sm">
-          <span class="shrink-0 opacity-70">长度 {{ state.length }}</span>
-          <input
-            v-model.number="state.length"
-            type="range"
-            data-testid="pwd-length"
-            :min="PASSWORD_MIN_LENGTH"
-            :max="PASSWORD_MAX_LENGTH"
-            class="range range-primary range-xs flex-1"
-          />
-        </label>
-
-        <label class="flex items-center gap-2 text-sm">
-          <span class="shrink-0 opacity-70">批量</span>
-          <input
-            v-model.number="state.batch"
-            type="number"
-            data-testid="pwd-batch"
-            min="1"
-            max="50"
-            class="input input-sm w-20"
-          />
-          <button type="button" data-testid="pwd-generate" class="btn btn-primary btn-sm" @click="generate">
-            生成
+      <PaneShell label="生成结果" :badge="results.length > 0 ? `${results.length} 条` : undefined" class="min-h-64 lg:h-full">
+        <template #actions>
+          <button
+            v-if="results.length > 0"
+            type="button"
+            data-testid="pwd-copy-all"
+            class="btn btn-ghost btn-xs"
+            @click="copyAll"
+          >
+            {{ copied && copiedIndex === -2 ? '已复制' : '全部复制' }}
           </button>
-          <button type="button" class="btn btn-ghost btn-sm" @click="onReset">还原默认</button>
-        </label>
-
-        <p v-if="strength" data-testid="pwd-strength" class="flex items-center gap-2 text-sm">
-          <span>熵估算 ≈ {{ strength.bits.toFixed(1) }} bit</span>
-          <span class="badge badge-sm" :class="STRENGTH_BADGE[strength.tone]">{{ strength.label }}</span>
-          <span class="opacity-50">(池 {{ pool?.length }} 字符 × {{ state.length }} 位)</span>
-        </p>
-      </div>
-
-      <div class="flex flex-col gap-2">
-        <ErrorBanner :message="errorMessage" />
-        <template v-if="results.length > 0">
-          <div class="flex items-center justify-between">
-            <span class="text-sm opacity-60">共 {{ results.length }} 条(参数变化自动重生成)</span>
-            <button type="button" data-testid="pwd-copy-all" class="btn btn-ghost btn-xs" @click="copyAll">
-              {{ copied && copiedIndex === -2 ? '已复制' : '全部复制' }}
-            </button>
-          </div>
-          <ul data-testid="pwd-results" class="flex flex-col gap-1">
+        </template>
+        <div class="flex h-full flex-col gap-2 p-3">
+          <ErrorBanner :message="errorMessage" />
+          <ul v-if="results.length > 0" data-testid="pwd-results" class="flex flex-col gap-1">
             <li
               v-for="(pwd, i) in results"
               :key="`${i}-${pwd}`"
@@ -223,8 +232,11 @@ function onReset(): void {
               </button>
             </li>
           </ul>
-        </template>
-      </div>
+          <p v-else-if="!errorMessage" class="flex flex-1 items-center justify-center font-mono text-xs text-base-content/35">
+            参数变化自动重生成
+          </p>
+        </div>
+      </PaneShell>
     </div>
 
     <p class="text-xs opacity-50">

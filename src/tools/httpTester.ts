@@ -22,19 +22,19 @@ const SAFE_SHORT_METHOD_LETTERS = 'IG'
 
 interface LongOption {
   /** 需要消费一个值(空格或 = 分隔) */
-  value?: 'header' | 'method' | 'ua' | 'referer' | 'user' | 'data' | 'url' | 'ignore'
+  value?: 'header' | 'method' | 'ua' | 'referer' | 'user' | 'data' | 'url' | 'cookie' | 'ignore'
   boolean?: boolean
 }
 
 /**
  * 支持的长选项表。声明范围:
  * - 方法:-X/--request
- * - 头:-H/--header(可多次)、-A/--user-agent、-e/--referer、-u/--user(Basic)
+ * - 头:-H/--header(可多次)、-A/--user-agent、-e/--referer、-u/--user(Basic)、-b/--cookie
  * - 数据:-d/--data/--data-raw/--data-binary(多条按 curl 原语义以 & 连接)
  * - URL:裸参数或 --url
  * - 方法短旗标:-I/-G(等价 --head/--get)
  * - 忽略的杂项:-s/-S/-k/-L/-i/-v/-#/-0/--compressed/--http1.1/--http2 等;
- *   带值忽略:--max-time/--connect-timeout/--retry/-o/-c/-b 等
+ *   带值忽略:--max-time/--connect-timeout/--retry/-o(输出)/-c(cookie-jar)等
  */
 const LONG_OPTIONS: Record<string, LongOption> = {
   request: { value: 'method' },
@@ -68,7 +68,7 @@ const LONG_OPTIONS: Record<string, LongOption> = {
   'max-time': { value: 'ignore' },
   'connect-timeout': { value: 'ignore' },
   output: { value: 'ignore' },
-  cookie: { value: 'ignore' },
+  cookie: { value: 'cookie' },
   'cookie-jar': { value: 'ignore' },
 }
 
@@ -149,6 +149,14 @@ export function parseCurl(input: string): CurlParts {
     dataParts.push(value)
   }
 
+  /** -b/--cookie:字符串字面量即 Cookie 头;@文件与文件名形式(curl 语义:不含 = 视为文件)拒绝 */
+  function setCookie(value: string): void {
+    if (value.startsWith('@') || !value.includes('=')) {
+      throw new Error(`-b/--cookie 的 cookie 文件形式暂不支持(收到:${value})`)
+    }
+    headers.Cookie = value
+  }
+
   function rejectDataLike(name: string): never {
     throw new Error(REJECTED_LONG_OPTIONS[name] ?? `不支持的 curl 选项:${name}`)
   }
@@ -192,6 +200,9 @@ export function parseCurl(input: string): CurlParts {
         headers.Authorization = `Basic ${toBase64(up)}`
         return
       }
+      case 'cookie':
+        setCookie(consumeValue(inlineValue))
+        return
       default:
         throw new Error(`不支持的 curl 选项:--${name}`)
     }
@@ -243,6 +254,13 @@ export function parseCurl(input: string): CurlParts {
       case 'd':
         takeData(shortFlagValue(rest))
         return
+      case 'b':
+        setCookie(shortFlagValue(rest))
+        return
+      case 'c': // cookie-jar(响应侧落盘)
+      case 'o': // output(响应体落盘)
+        shortFlagValue(rest)
+        return
       default:
         throw new Error(`不支持的 curl 选项:-${unknownShortLetter(body)}`)
     }
@@ -255,7 +273,7 @@ export function parseCurl(input: string): CurlParts {
         (ch) =>
           !SAFE_SHORT_CLUSTER_LETTERS.includes(ch) &&
           !SAFE_SHORT_METHOD_LETTERS.includes(ch) &&
-          !'XHAeud'.includes(ch),
+          !'XHAeudbco'.includes(ch),
       ) ?? body[0]!
     )
   }

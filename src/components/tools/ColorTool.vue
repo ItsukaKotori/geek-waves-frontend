@@ -16,6 +16,7 @@ import {
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
 import ErrorBanner from '../ui/ErrorBanner.vue'
+import PaneShell from '../tools-ui/PaneShell.vue'
 
 /**
  * 颜色工具(FE11 T2 批次二):HEX/RGB/HSL 三格式互转任一输入全联动 +
@@ -113,125 +114,139 @@ function markEdited(which: 'hex' | 'rgb' | 'hsl'): void {
 
 <template>
   <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow" @keydown.meta.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">颜色工具</h2>
+    <div class="grid items-stretch gap-3 lg:grid-cols-2">
+      <!-- 颜色输入:三格式互为视图,编辑任一其余联动 -->
+      <PaneShell label="颜色输入" :badge="state.current">
+        <div class="flex h-full flex-col gap-2 p-3">
+          <label class="flex items-center gap-2 text-sm">
+            <span class="w-10 shrink-0 text-xs opacity-60">HEX</span>
+            <input
+              v-model="hexInput"
+              data-testid="color-hex"
+              class="input input-sm font-mono"
+              placeholder="#336699"
+              spellcheck="false"
+              @input="markEdited('hex')"
+            />
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <span class="w-10 shrink-0 text-xs opacity-60">RGB</span>
+            <input
+              v-model="rgbInput"
+              data-testid="color-rgb"
+              class="input input-sm font-mono"
+              placeholder="rgb(51, 102, 153)"
+              spellcheck="false"
+              @input="markEdited('rgb')"
+            />
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <span class="w-10 shrink-0 text-xs opacity-60">HSL</span>
+            <input
+              v-model="hslInput"
+              data-testid="color-hsl"
+              class="input input-sm font-mono"
+              placeholder="hsl(210, 50%, 40%)"
+              spellcheck="false"
+              @input="markEdited('hsl')"
+            />
+          </label>
 
-    <div class="grid gap-3 md:grid-cols-2">
-      <div class="flex flex-col gap-2">
-        <label class="flex items-center gap-2 text-sm">
-          <span class="w-10 shrink-0 text-xs opacity-60">HEX</span>
-          <input
-            v-model="hexInput"
-            data-testid="color-hex"
-            class="input input-sm font-mono"
-            placeholder="#336699"
-            spellcheck="false"
-            @input="markEdited('hex')"
-          />
-        </label>
-        <label class="flex items-center gap-2 text-sm">
-          <span class="w-10 shrink-0 text-xs opacity-60">RGB</span>
-          <input
-            v-model="rgbInput"
-            data-testid="color-rgb"
-            class="input input-sm font-mono"
-            placeholder="rgb(51, 102, 153)"
-            spellcheck="false"
-            @input="markEdited('rgb')"
-          />
-        </label>
-        <label class="flex items-center gap-2 text-sm">
-          <span class="w-10 shrink-0 text-xs opacity-60">HSL</span>
-          <input
-            v-model="hslInput"
-            data-testid="color-hsl"
-            class="input input-sm font-mono"
-            placeholder="hsl(210, 50%, 40%)"
-            spellcheck="false"
-            @input="markEdited('hsl')"
-          />
-        </label>
-        <div class="flex items-center gap-2">
-          <span
-            data-testid="color-swatch"
-            class="h-8 w-8 shrink-0 rounded border border-base-300"
-            :style="{ backgroundColor: state.current }"
-            :title="state.current"
-          />
-          <button type="button" data-testid="color-set-fg" class="btn btn-outline btn-xs" @click="setForeground">
-            设为前景
-          </button>
-          <button type="button" data-testid="color-set-bg" class="btn btn-outline btn-xs" @click="setBackground">
-            设为背景
-          </button>
-        </div>
-      </div>
-
-      <div class="flex flex-col gap-2">
-        <label class="flex items-center gap-2 text-sm">
-          <span class="shrink-0 text-xs opacity-60">前景</span>
-          <input
-            v-model="fgColor"
-            data-testid="color-fg"
-            type="color"
-            class="input input-sm h-9 w-16 cursor-pointer p-0.5"
-          />
-          <span class="font-mono text-xs opacity-60">{{ state.fg }}</span>
-        </label>
-        <label class="flex items-center gap-2 text-sm">
-          <span class="shrink-0 text-xs opacity-60">背景</span>
-          <input
-            v-model="bgColor"
-            data-testid="color-bg"
-            type="color"
-            class="input input-sm h-9 w-16 cursor-pointer p-0.5"
-          />
-          <span class="font-mono text-xs opacity-60">{{ state.bg }}</span>
-        </label>
-
-        <div v-if="contrast !== null && grades" class="rounded border border-base-300 bg-base-200/40 p-3">
-          <p class="text-xs opacity-60">WCAG 对比度(前景 × 背景)</p>
-          <p data-testid="color-ratio" class="mt-0.5 text-2xl font-semibold tabular-nums">{{ ratioText }}</p>
-          <div class="mt-1.5 flex flex-wrap gap-1">
+          <div class="flex items-center gap-2 pt-1">
             <span
-              :data-testid="`color-grade-normal-aa`"
-              class="badge badge-sm"
-              :class="grades.normalAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
-            >
-              正常文本 AA {{ grades.normalAA ? '通过' : '未达标' }}
-            </span>
-            <span
-              data-testid="color-grade-normal-aaa"
-              class="badge badge-sm"
-              :class="grades.normalAAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
-            >
-              正常文本 AAA {{ grades.normalAAA ? '通过' : '未达标' }}
-            </span>
-            <span
-              data-testid="color-grade-large-aa"
-              class="badge badge-sm"
-              :class="grades.largeAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
-            >
-              大文本 AA {{ grades.largeAA ? '通过' : '未达标' }}
-            </span>
-            <span
-              data-testid="color-grade-large-aaa"
-              class="badge badge-sm"
-              :class="grades.largeAAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
-            >
-              大文本 AAA {{ grades.largeAAA ? '通过' : '未达标' }}
-            </span>
+              data-testid="color-swatch"
+              class="h-8 w-8 shrink-0 rounded border border-base-300"
+              :style="{ backgroundColor: state.current }"
+              :title="state.current"
+            />
+            <button type="button" data-testid="color-set-fg" class="btn btn-outline btn-xs" @click="setForeground">
+              设为前景
+            </button>
+            <button type="button" data-testid="color-set-bg" class="btn btn-outline btn-xs" @click="setBackground">
+              设为背景
+            </button>
+            <span class="text-xs text-base-content/45">发送到右侧对比度面板</span>
           </div>
-          <p
-            class="mt-2 rounded border border-base-300 p-2 text-sm"
-            :style="{ backgroundColor: state.bg, color: state.fg }"
-          >
-            前景文字预览示例 The quick brown fox
-          </p>
-        </div>
-      </div>
-    </div>
 
-    <ErrorBanner :message="errorMessage" />
+          <ErrorBanner :message="errorMessage" />
+        </div>
+        <template #footer>
+          <span class="text-base-content/40">编辑任一格式,其余两格式实时联动</span>
+        </template>
+      </PaneShell>
+
+      <!-- WCAG 对比度:前景 × 背景,AA/AAA 判级 -->
+      <PaneShell label="WCAG 对比度" badge="前景 × 背景" class="lg:h-full">
+        <div class="flex h-full flex-col gap-2 p-3">
+          <label class="flex items-center gap-2 text-sm">
+            <span class="shrink-0 text-xs opacity-60">前景</span>
+            <input
+              v-model="fgColor"
+              data-testid="color-fg"
+              type="color"
+              class="input input-sm h-9 w-16 cursor-pointer p-0.5"
+            />
+            <span class="font-mono text-xs opacity-60">{{ state.fg }}</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <span class="shrink-0 text-xs opacity-60">背景</span>
+            <input
+              v-model="bgColor"
+              data-testid="color-bg"
+              type="color"
+              class="input input-sm h-9 w-16 cursor-pointer p-0.5"
+            />
+            <span class="font-mono text-xs opacity-60">{{ state.bg }}</span>
+          </label>
+
+          <div v-if="contrast !== null && grades" class="flex flex-1 flex-col justify-center gap-2">
+            <div>
+              <p class="text-xs opacity-60">对比度比值</p>
+              <p data-testid="color-ratio" class="text-2xl font-semibold tabular-nums">{{ ratioText }}</p>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <span
+                :data-testid="`color-grade-normal-aa`"
+                class="badge badge-sm"
+                :class="grades.normalAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
+              >
+                正常文本 AA {{ grades.normalAA ? '通过' : '未达标' }}
+              </span>
+              <span
+                data-testid="color-grade-normal-aaa"
+                class="badge badge-sm"
+                :class="grades.normalAAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
+              >
+                正常文本 AAA {{ grades.normalAAA ? '通过' : '未达标' }}
+              </span>
+              <span
+                data-testid="color-grade-large-aa"
+                class="badge badge-sm"
+                :class="grades.largeAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
+              >
+                大文本 AA {{ grades.largeAA ? '通过' : '未达标' }}
+              </span>
+              <span
+                data-testid="color-grade-large-aaa"
+                class="badge badge-sm"
+                :class="grades.largeAAA ? 'badge-success badge-soft' : 'badge-error badge-soft'"
+              >
+                大文本 AAA {{ grades.largeAAA ? '通过' : '未达标' }}
+              </span>
+            </div>
+            <p
+              class="rounded border border-base-300 p-2 text-sm"
+              :style="{ backgroundColor: state.bg, color: state.fg }"
+            >
+              前景文字预览示例 The quick brown fox
+            </p>
+          </div>
+        </div>
+        <template #footer>
+          <span class="text-base-content/40">判级阈值 AA ≥ 4.5 / AAA ≥ 7(正常),AA ≥ 3 / AAA ≥ 4.5(大文本)</span>
+        </template>
+      </PaneShell>
+    </div>
 
     <p class="text-xs opacity-50">
       口径:RGB 分量 0~255 整数(小数输入四舍五入,越界报错不截断);HSL 色相环绕 [0,360)、

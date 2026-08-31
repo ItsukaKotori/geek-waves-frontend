@@ -12,6 +12,10 @@ import {
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
+import PaneShell from '../tools-ui/PaneShell.vue'
+import CodeEditor from '../tools-ui/CodeEditor.vue'
+import CodeOutput from '../tools-ui/CodeOutput.vue'
+import PaneSeam from '../tools-ui/PaneSeam.vue'
 
 /** 输出视图:'convert' 实时转换;'pretty' 美化;'minify' 压缩;'tree' 折叠树 */
 type OutputView = 'convert' | 'pretty' | 'minify' | 'tree'
@@ -77,8 +81,8 @@ const queryRunner = watchDebounced([() => state.input, () => state.pathExpr], ru
 
 const target = computed(() => findConverter(state.targetId))
 const targetLabel = computed(() => target.value?.label ?? '')
-/** TS / SQL 仅支持 JSON → 目标(生成),不支持反向解析 */
-const oneWayOnly = computed(() => ['ts', 'sql'].includes(state.targetId))
+/** 仅支持 JSON → 目标(生成),不支持反向解析的格式 */
+const oneWayOnly = computed(() => ['ts', 'sql', 'kotlin', 'rust'].includes(state.targetId))
 
 /** 输出视图只读快照(写入走 state.view,保持持久化一致性) */
 const view = computed<OutputView>(() => state.view)
@@ -212,117 +216,150 @@ function swap(): void {
   if (!shownOutput.value) return
   state.input = shownOutput.value
 }
+
+/* ------------------------------ 展示层派生(纯 UI) ----------------------------- */
+
+const inputLines = computed(() => (state.input === '' ? 0 : state.input.split('\n').length))
+
+const VIEW_LABELS: Record<OutputView, string> = {
+  convert: '',
+  pretty: '美化',
+  minify: '压缩',
+  tree: '树视图',
+}
+
+/** 输出面板徽标:转换视图给方向,其余视图给视图名 */
+const outputBadge = computed(() => {
+  if (view.value === 'convert') {
+    return toJson.value ? `JSON → ${targetLabel.value}` : `${targetLabel.value} → JSON`
+  }
+  return VIEW_LABELS[view.value]
+})
 </script>
 
 <template>
   <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">JSON 转换</h2>
-
-    <div class="flex flex-wrap items-center gap-2">
-      <span class="badge badge-ghost badge-sm font-mono">JSON</span>
-      <button
-        type="button"
-        class="btn btn-xs"
-        :class="toJson ? 'btn-primary' : 'btn-ghost'"
-        :disabled="oneWayOnly && !toJson"
-        @click="state.toJson = true"
-      >
-        →
-      </button>
-      <select v-model="state.targetId" class="select select-sm w-40" @change="onTargetChange">
-        <option v-for="c in converters" :key="c.id" :value="c.id">{{ c.label }}</option>
-      </select>
-      <button
-        type="button"
-        class="btn btn-xs"
-        :class="!toJson ? 'btn-primary' : 'btn-ghost'"
-        :disabled="oneWayOnly"
-        :title="oneWayOnly ? `${targetLabel} 不支持反向解析` : '反向转换'"
-        @click="state.toJson = false"
-      >
-        ←
-      </button>
-      <span v-if="oneWayOnly" class="text-xs text-base-content/50">{{ targetLabel }} 仅支持 JSON → {{ targetLabel }}</span>
-    </div>
-
-    <textarea v-model="state.input" rows="10" :placeholder="placeholder" class="textarea textarea-bordered font-mono" />
-
-    <div class="tabs tabs-box tabs-sm w-fit">
-      <button class="tab" :class="{ 'tab-active': view === 'convert' }" @click="state.view = 'convert'">
-        转换视图
-      </button>
-      <button class="tab" :class="{ 'tab-active': view === 'pretty' }" @click="state.view = 'pretty'">美化视图</button>
-      <button class="tab" :class="{ 'tab-active': view === 'minify' }" @click="state.view = 'minify'">压缩视图</button>
-      <button class="tab" :class="{ 'tab-active': view === 'tree' }" @click="state.view = 'tree'">树视图</button>
-    </div>
-
-    <template v-if="view !== 'tree'">
-      <div class="flex flex-wrap gap-2">
-        <button v-if="shownOutput" class="btn btn-sm btn-ghost" @click="swap">↑ 结果作为输入</button>
-        <button v-if="shownOutput" class="btn btn-sm btn-ghost" @click="copy(shownOutput)">
-          {{ copied ? '已复制' : '复制' }}
-        </button>
-        <span v-if="!shownOutput && !shownError" class="self-center text-xs opacity-50">
-          输入后实时出结果,Ctrl+Enter 立即重算
-        </span>
-      </div>
-
-      <p v-if="shownError" class="text-error text-sm">{{ shownError }}</p>
-      <pre v-if="shownOutput" class="max-h-96 overflow-auto whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3">{{ shownOutput }}</pre>
-    </template>
-
-    <template v-else>
-      <div class="flex flex-wrap gap-2">
-        <button v-if="treeRoot" class="btn btn-sm btn-ghost" @click="copy(prettyOut)">
-          {{ copied ? '已复制' : '复制' }}
-        </button>
-        <span v-if="!treeRoot" class="self-center text-xs opacity-50">输入合法 JSON 后以可折叠树展示</span>
-      </div>
-      <div
-        v-if="treeRoot"
-        class="tree-pane max-h-96 overflow-auto rounded-box border border-base-300 bg-base-200/60 p-2 font-mono text-sm"
-      >
-        <div
-          v-for="row in treeRows"
-          :key="row.node.id"
-          class="flex items-start gap-1 rounded px-1 py-0.5 hover:bg-base-100/70"
-          :style="{ paddingLeft: `${row.indent * 1.25}rem` }"
+    <!-- 工具栏:转换方向与目标格式 + 输出视图切换 -->
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div class="flex items-center gap-1.5">
+        <button
+          type="button"
+          class="btn btn-xs"
+          :class="toJson ? 'btn-primary' : 'btn-ghost'"
+          :disabled="oneWayOnly && !toJson"
+          @click="state.toJson = true"
         >
-          <button
-            v-if="row.node.childCount"
-            class="tree-toggle btn btn-xs btn-ghost h-5 min-h-0 px-1 leading-none"
-            :aria-label="`切换 ${row.node.keyLabel}`"
-            @click="toggle(row.node.id)"
-          >
-            {{ collapsed.has(row.node.id) ? '▸' : '▾' }}
-          </button>
-          <span v-else class="w-5 shrink-0" />
-          <span class="shrink-0 opacity-70">{{ row.node.keyLabel }}:</span>
-          <span class="break-all">{{ row.node.preview }}</span>
-          <span v-if="row.node.childCount" class="shrink-0 text-xs opacity-50">
-            {{ collapsed.has(row.node.id) ? '' : row.node.kind === 'array' ? '[' : '{' }}
-            {{ row.node.childCount }} 项{{ collapsed.has(row.node.id) ? '' : row.node.kind === 'array' ? ']' : '}' }}
-          </span>
-        </div>
+          →
+        </button>
+        <select v-model="state.targetId" class="select select-sm w-40" @change="onTargetChange">
+          <option v-for="c in converters" :key="c.id" :value="c.id">{{ c.label }}</option>
+        </select>
+        <button
+          type="button"
+          class="btn btn-xs"
+          :class="!toJson ? 'btn-primary' : 'btn-ghost'"
+          :disabled="oneWayOnly"
+          :title="oneWayOnly ? `${targetLabel} 不支持反向解析` : '反向转换'"
+          @click="state.toJson = false"
+        >
+          ←
+        </button>
+        <span v-if="oneWayOnly" class="text-xs text-base-content/50">{{ targetLabel }} 仅支持 JSON → {{ targetLabel }}</span>
       </div>
-    </template>
+      <div class="tabs tabs-box tabs-sm ml-auto w-fit">
+        <button class="tab" :class="{ 'tab-active': view === 'convert' }" @click="state.view = 'convert'">
+          转换视图
+        </button>
+        <button class="tab" :class="{ 'tab-active': view === 'pretty' }" @click="state.view = 'pretty'">美化视图</button>
+        <button class="tab" :class="{ 'tab-active': view === 'minify' }" @click="state.view = 'minify'">压缩视图</button>
+        <button class="tab" :class="{ 'tab-active': view === 'tree' }" @click="state.view = 'tree'">树视图</button>
+      </div>
+    </div>
 
-    <section class="flex flex-col gap-2 border-t border-base-300 pt-3">
-      <h3 class="text-sm font-semibold opacity-80">JSONPath 查询(常用子集)</h3>
-      <input
-        v-model="state.pathExpr"
-        aria-label="JSONPath 查询表达式"
-        placeholder="如 $.store.book[*].author、$..id、$.list[1:3]"
-        class="input input-sm jsonpath-input font-mono"
-      />
-      <p v-if="qErr" class="text-error text-sm">{{ qErr }}</p>
-      <template v-else-if="qCount >= 0">
-        <span class="text-xs opacity-60">
-          命中 {{ qCount }} 处{{ qTruncated ? '(已达上限截断)' : '' }}
-          · 支持 $ 属性链 / .* [*] 通配 / [n] 下标 / 切片 / 联合 / ..递归
+    <!-- 双栏工作台 -->
+    <div class="grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
+      <PaneShell label="输入" :badge="toJson ? 'JSON' : targetLabel" class="h-80">
+        <template #actions>
+          <button v-if="state.input" type="button" class="btn btn-ghost btn-xs" @click="state.input = ''">清空</button>
+        </template>
+        <CodeEditor v-model="state.input" :placeholder="placeholder" aria-label="JSON 或目标格式源文本" />
+        <template #footer>
+          <span>{{ state.input.length }} 字符</span>
+          <span v-if="inputLines > 1">{{ inputLines }} 行</span>
+          <span class="ml-auto text-base-content/40">Ctrl+Enter 立即重算</span>
+        </template>
+      </PaneShell>
+
+      <PaneSeam :direction="toJson ? 'lr' : 'rl'" :swap="!!shownOutput" swap-title="结果作为输入" @swap="swap" />
+
+      <PaneShell label="输出" :badge="outputBadge" class="h-80">
+        <template #actions>
+          <button
+            v-if="view === 'tree' ? !!treeRoot : !!shownOutput"
+            type="button"
+            class="btn btn-ghost btn-xs"
+            @click="copy(view === 'tree' ? prettyOut : shownOutput)"
+          >
+            {{ copied ? '已复制' : '复制' }}
+          </button>
+        </template>
+        <CodeOutput v-if="view !== 'tree'" :text="shownOutput" empty-hint="输入后实时出结果" />
+        <div v-else class="h-full overflow-auto">
+          <div v-if="treeRoot" class="tree-pane p-2 font-mono text-sm">
+            <div
+              v-for="row in treeRows"
+              :key="row.node.id"
+              class="flex items-start gap-1 rounded px-1 py-0.5 hover:bg-base-200/60"
+              :style="{ paddingLeft: `${row.indent * 1.25}rem` }"
+            >
+              <button
+                v-if="row.node.childCount"
+                class="tree-toggle btn btn-xs btn-ghost h-5 min-h-0 px-1 leading-none"
+                :aria-label="`切换 ${row.node.keyLabel}`"
+                @click="toggle(row.node.id)"
+              >
+                {{ collapsed.has(row.node.id) ? '▸' : '▾' }}
+              </button>
+              <span v-else class="w-5 shrink-0" />
+              <span class="shrink-0 opacity-70">{{ row.node.keyLabel }}:</span>
+              <span class="break-all">{{ row.node.preview }}</span>
+              <span v-if="row.node.childCount" class="shrink-0 text-xs opacity-50">
+                {{ collapsed.has(row.node.id) ? '' : row.node.kind === 'array' ? '[' : '{' }}
+                {{ row.node.childCount }} 项{{ collapsed.has(row.node.id) ? '' : row.node.kind === 'array' ? ']' : '}' }}
+              </span>
+            </div>
+          </div>
+          <p v-else class="flex h-full min-h-20 items-center justify-center font-mono text-xs text-base-content/35">
+            输入合法 JSON 后以可折叠树展示
+          </p>
+        </div>
+        <template #footer>
+          <span v-if="shownError" class="text-error">{{ shownError }}</span>
+        </template>
+      </PaneShell>
+    </div>
+
+    <!-- JSONPath 查询 -->
+    <PaneShell label="JSONPath 查询" badge="常用子集">
+      <div class="flex flex-col gap-2 p-3">
+        <input
+          v-model="state.pathExpr"
+          aria-label="JSONPath 查询表达式"
+          placeholder="如 $.store.book[*].author、$..id、$.list[1:3]"
+          class="input input-sm jsonpath-input font-mono"
+        />
+        <pre
+          v-if="qOut"
+          class="jsonpath-results max-h-72 overflow-auto whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3 font-mono text-sm"
+          >{{ qOut }}</pre
+        >
+      </div>
+      <template #footer>
+        <span v-if="qErr" class="text-error">{{ qErr }}</span>
+        <span v-else-if="qCount >= 0">
+          命中 {{ qCount }} 处{{ qTruncated ? '(已达上限截断)' : '' }} · 支持 $ 属性链 / .* [*] 通配 / [n] 下标 / 切片 / 联合 / ..递归
         </span>
-        <pre class="jsonpath-results max-h-72 overflow-auto whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ qOut }}</pre>
       </template>
-    </section>
+    </PaneShell>
   </div>
 </template>
