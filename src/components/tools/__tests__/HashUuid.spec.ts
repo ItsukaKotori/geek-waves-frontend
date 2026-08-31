@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import { webcrypto } from 'node:crypto'
+import { webcrypto, createHmac } from 'node:crypto'
 import { md5 } from 'js-md5'
 import HashUuid from '../HashUuid.vue'
 import { hashChunks } from '../../../tools/hashUuid'
@@ -175,5 +175,69 @@ describe('HashUuid FE5 功能补全', () => {
     expect(options).toContain('SHA3-256')
     expect(options).toContain('SHA3-512')
     vi.useRealTimers()
+  })
+})
+
+describe('HMAC 密钥输入', () => {
+  const secretInput = (w: ReturnType<typeof mount>) => w.find('input[placeholder*="密钥"]')
+  const hmacOf = (algo: 'md5' | 'sha256', key: string, text: string) =>
+    createHmac(algo, key).update(text).digest('hex')
+
+  it('填入密钥后输出切换为 HMAC,徽章标注算法前缀', async () => {
+    vi.useFakeTimers()
+    const w = mount(HashUuid)
+    await w.findAll('select')[0].setValue('MD5')
+    await w.find('input[placeholder]').setValue('GeekWaves')
+    await secretInput(w).setValue('secret-key')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(hashOutText(w)).toBe(hmacOf('md5', 'secret-key', 'GeekWaves'))
+    expect(w.text()).toContain('HMAC-MD5')
+  })
+
+  it('密钥同样参与防抖与实时重算', async () => {
+    vi.useFakeTimers()
+    const w = mount(HashUuid)
+    await w.findAll('select')[0].setValue('SHA-256')
+    await w.find('input[placeholder]').setValue('GeekWaves')
+    await secretInput(w).setValue('k1')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE - 1)
+    expect(hashOutText(w)).toBe('')
+    await vi.advanceTimersByTimeAsync(1)
+    await nextTick()
+    expect(hashOutText(w)).toBe(hmacOf('sha256', 'k1', 'GeekWaves'))
+    await secretInput(w).setValue('k2')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(hashOutText(w)).toBe(hmacOf('sha256', 'k2', 'GeekWaves'))
+  })
+
+  it('清空密钥回到普通哈希', async () => {
+    vi.useFakeTimers()
+    const w = mount(HashUuid)
+    await w.findAll('select')[0].setValue('MD5')
+    await w.find('input[placeholder]').setValue('GeekWaves')
+    await secretInput(w).setValue('k')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await secretInput(w).setValue('')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(hashOutText(w)).toBe(md5('GeekWaves'))
+    expect(w.text()).not.toContain('HMAC-MD5')
+  })
+
+  it('密钥不落 localStorage(刷新/重挂载后为空)', async () => {
+    vi.useFakeTimers()
+    const w = mount(HashUuid)
+    await w.findAll('select')[0].setValue('MD5')
+    await w.find('input[placeholder]').setValue('GeekWaves')
+    await secretInput(w).setValue('top-secret')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    w.unmount()
+    const w2 = mount(HashUuid)
+    expect((secretInput(w2).element as HTMLInputElement).value).toBe('')
+    // 其余输入恢复正常持久化语义
+    expect(w2.find('input[placeholder]').exists()).toBe(true)
   })
 })

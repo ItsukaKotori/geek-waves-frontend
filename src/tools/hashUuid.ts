@@ -20,12 +20,71 @@ const toHex = (bytes: Uint8Array): string =>
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
 
+const hexToBytes = (hex: string): Uint8Array => {
+  const out = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  return out
+}
+
 export async function hashValue(text: string, algo: HashAlgorithm): Promise<string> {
   if (algo === 'MD5') return md5(text)
   if (algo === 'SHA3-256') return sha3_256(text)
   if (algo === 'SHA3-512') return sha3_512(text)
   const digest = await globalThis.crypto.subtle.digest(algo, new TextEncoder().encode(text))
   return toHex(new Uint8Array(digest))
+}
+
+/* ------------------------------ HMAC(RFC 2104) ------------------------------ */
+
+/** 各算法字节摘要适配:统一为同步纯函数(部分库的 d.ts 未暴露 .array(),走 hex 再转字节) */
+const digestBytes: Record<HashAlgorithm, (data: Uint8Array) => Uint8Array> = {
+  MD5: (d) => new Uint8Array(md5.array(d)),
+  'SHA-1': (d) => hexToBytes(sha1(d)),
+  'SHA-256': (d) => new Uint8Array(sha256.array(d)),
+  'SHA-512': (d) => hexToBytes(sha512(d)),
+  'SHA3-256': (d) => new Uint8Array(sha3_256.array(d)),
+  'SHA3-512': (d) => new Uint8Array(sha3_512.array(d)),
+}
+
+/**
+ * HMAC 块长(字节):MD5/SHA-1/SHA-256 为 64,SHA-512 为 128;
+ * SHA3 系列取 Keccak 吸收率(rate):SHA3-256=136、SHA3-512=72。
+ */
+const HMAC_BLOCK: Record<HashAlgorithm, number> = {
+  MD5: 64,
+  'SHA-1': 64,
+  'SHA-256': 64,
+  'SHA-512': 128,
+  'SHA3-256': 136,
+  'SHA3-512': 72,
+}
+
+/**
+ * 通用 HMAC 构造(RFC 2104):H(K⊕opad ‖ H(K⊕ipad ‖ m))。
+ * 密钥超块长先做 H(K) 收缩;签名与 hashValue 对齐(异步、hex 小写输出)。
+ */
+export async function hmacValue(
+  text: string,
+  algo: HashAlgorithm,
+  secret: string | Uint8Array,
+): Promise<string> {
+  const block = HMAC_BLOCK[algo]
+  const hash = digestBytes[algo]
+  const message = new TextEncoder().encode(text)
+  let key = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret
+  if (key.length > block) key = hash(key)
+  const padded = new Uint8Array(block)
+  padded.set(key)
+
+  const inner = new Uint8Array(block + message.length)
+  const outer = new Uint8Array(block + hash(new Uint8Array(0)).length)
+  for (let i = 0; i < block; i++) {
+    inner[i] = padded[i] ^ 0x36
+    outer[i] = padded[i] ^ 0x5c
+  }
+  inner.set(message, block)
+  outer.set(hash(inner), block)
+  return toHex(hash(outer))
 }
 
 interface IncrementalState {

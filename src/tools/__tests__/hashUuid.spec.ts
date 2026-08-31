@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createHash } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import {
   formatHex,
   hashChunks,
   hashValue,
+  hmacValue,
   uuid7,
   type HexDisplayOptions,
 } from '../hashUuid'
@@ -86,6 +87,73 @@ describe('hashValue 文本路径含 SHA-3', () => {
   it('原生算法不回归', async () => {
     expect(await hashValue('hello', 'MD5')).toBe('5d41402abc4b2a76b9719d911017c592')
   })
+})
+
+describe('hmacValue 通用 HMAC 构造', () => {
+  const nodeHmac = (
+    algo: 'md5' | 'sha1' | 'sha256' | 'sha512' | 'sha3-256' | 'sha3-512',
+    key: Buffer,
+    data: Buffer,
+  ) => createHmac(algo, key).update(data).digest('hex')
+
+  it('RFC 2202 向量:测试用例 1(密钥长随算法:MD5=16 / SHA-1=20)', async () => {
+    expect(await hmacValue('Hi There', 'MD5', Buffer.alloc(16, 0x0b))).toBe(
+      '9294727a3638bb1c13f48ef8158bfc9d',
+    )
+    expect(await hmacValue('Hi There', 'SHA-1', Buffer.alloc(20, 0x0b))).toBe(
+      'b617318655057264e28bc0b6fb378c8ef146be00',
+    )
+  })
+
+  it('RFC 2202 向量:测试用例 2(短 ASCII 密钥)', async () => {
+    expect(await hmacValue('what do ya want for nothing?', 'MD5', 'Jefe')).toBe(
+      '750c783e6ab0b503eaa86e310a5db738',
+    )
+    expect(await hmacValue('what do ya want for nothing?', 'SHA-1', 'Jefe')).toBe(
+      'effcdf6ae5eb2fa2d27416d5f184df9c259a7c79',
+    )
+  })
+
+  it('RFC 4231 向量:测试用例 1(0x0b×20 密钥)', async () => {
+    const key = Buffer.alloc(20, 0x0b)
+    expect(await hmacValue('Hi There', 'SHA-256', key)).toBe(
+      'b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7',
+    )
+    expect(await hmacValue('Hi There', 'SHA-512', key)).toBe(
+      '87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854',
+    )
+  })
+
+  it('与 node:crypto createHmac 全算法一致(含超块长密钥与空密钥)', async () => {
+    const data = Buffer.from('GeekWaves hmac 交叉验证 payload')
+    const keys = [
+      Buffer.alloc(0),
+      Buffer.from('短密钥'),
+      Buffer.alloc(200, 0x5a), // 超过 SHA-512 块长 128,触发 H(K) 收缩路径
+      Buffer.from('k'.repeat(135)), // 恰在 SHA3-256 块长 136 边界附近
+    ]
+    for (const key of keys) {
+      expect(await hmacValue(utf8(data), 'MD5', key)).toBe(nodeHmac('md5', key, data))
+      expect(await hmacValue(utf8(data), 'SHA-1', key)).toBe(nodeHmac('sha1', key, data))
+      expect(await hmacValue(utf8(data), 'SHA-256', key)).toBe(nodeHmac('sha256', key, data))
+      expect(await hmacValue(utf8(data), 'SHA-512', key)).toBe(nodeHmac('sha512', key, data))
+    }
+  })
+
+  it('SHA3 系列与 node:crypto 一致(块长 136/72,含超块长密钥)', async () => {
+    const key = Buffer.alloc(150, 0x33) // 同时超过 SHA3-256(136) 与 SHA3-512(72) 块长
+    const data = Buffer.from('kmac 之外的场景')
+    expect(await hmacValue(utf8(data), 'SHA3-256', key)).toBe(nodeHmac('sha3-256', key, data))
+    expect(await hmacValue(utf8(data), 'SHA3-512', key)).toBe(nodeHmac('sha3-512', key, data))
+  })
+
+  it('与纯哈希可区分,且同输入确定', async () => {
+    const once = await hmacValue('hello', 'SHA-256', 'k')
+    expect(once).not.toBe(await hashValue('hello', 'SHA-256'))
+    expect(once).toBe(await hmacValue('hello', 'SHA-256', 'k'))
+  })
+
+  const utf8 = (b: Buffer): string => new TextDecoder().decode(b)
 })
 
 describe('uuid7(RFC 9562 时间戳排序版)', () => {
