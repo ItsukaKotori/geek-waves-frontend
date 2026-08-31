@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   base64Encode,
   base64Decode,
@@ -7,10 +7,12 @@ import {
   hexDecode,
 } from '../../tools/encodeDecode'
 import { parseDataUrl, sniffImageSize, type ImageSize } from '../../tools/imageInfo'
-import ErrorBanner from '../ui/ErrorBanner.vue'
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
+import PaneShell from '../tools-ui/PaneShell.vue'
+import CodeEditor from '../tools-ui/CodeEditor.vue'
+import CodeOutput from '../tools-ui/CodeOutput.vue'
 
 type Mode = 'b64' | 'url' | 'hex'
 
@@ -33,11 +35,63 @@ interface ImagePreviewInfo {
 const preview = ref<ImagePreviewInfo | null>(null)
 const { copied, copy } = useCopy()
 
+/* 图片文件 → dataURL:上传后回填输入,复用既有解码预览管道 */
+
+const dragOver = ref(false)
+const fileErr = ref('')
+const fileNote = ref('')
+const browseRef = ref<HTMLInputElement | null>(null)
+
+function formatBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${n} 字节`
+}
+
+function runFile(file: File): void {
+  if (!file.type.startsWith('image/')) {
+    fileErr.value = '仅支持图片文件'
+    return
+  }
+  fileErr.value = ''
+  fileNote.value = `${file.name} · ${formatBytes(file.size)}`
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (typeof reader.result === 'string') state.input = reader.result
+  }
+  reader.readAsDataURL(file)
+}
+
+function onDrop(e: DragEvent): void {
+  dragOver.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file) runFile(file)
+}
+
+function onBrowseChange(e: Event): void {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) runFile(file)
+  input.value = ''
+}
+
 const MODE_LABELS: Record<Mode, string> = {
   b64: 'Base64',
   url: 'URL',
   hex: 'Hex',
 }
+
+/* ------------------------------ 展示层派生(纯 UI) ----------------------------- */
+
+const inputPlaceholder = computed(() =>
+  state.mode === 'b64'
+    ? '输入明文或 Base64 字符串(支持图片 dataURL 预览)'
+    : state.mode === 'hex'
+      ? '输入文本或十六进制串(可含空格/冒号分隔)'
+      : '输入文本或 URL 编码字符串',
+)
+
+const inputLines = computed(() => (state.input === '' ? 0 : state.input.split('\n').length))
 
 function detectImage(input: string): ImagePreviewInfo | null {
   const parsed = parseDataUrl(input)
@@ -107,50 +161,88 @@ watch(
 
 <template>
   <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">Base64 / URL / Hex 编解码</h2>
+    <!-- 工具栏:编码模式 -->
     <div class="tabs tabs-box tabs-sm w-fit">
       <button class="tab" :class="{ 'tab-active': state.mode === 'b64' }" @click="state.mode = 'b64'">Base64</button>
       <button class="tab" :class="{ 'tab-active': state.mode === 'url' }" @click="state.mode = 'url'">URL</button>
       <button class="tab" :class="{ 'tab-active': state.mode === 'hex' }" @click="state.mode = 'hex'">Hex</button>
     </div>
-    <textarea
-      v-model="state.input"
-      rows="6"
-      :placeholder="
-        state.mode === 'b64'
-          ? '输入明文或 Base64 字符串(支持图片 dataURL 预览)'
-          : state.mode === 'hex'
-            ? '输入文本或十六进制串(可含空格/冒号分隔)'
-            : '输入文本或 URL 编码字符串'
-      "
-      class="textarea textarea-bordered font-mono"
-    />
-    <!-- 图片 Base64 预览:dataURL 输入 → 缩略图 + 尺寸信息 -->
-    <div v-if="preview" class="image-preview flex items-start gap-4 rounded-box border border-base-300 bg-base-200/40 p-3">
-      <img :src="preview.url" alt="图片预览缩略图" class="max-h-40 max-w-[50%] rounded object-contain" />
-      <div class="min-w-0 flex-col gap-1 text-xs leading-relaxed opacity-80">
-        <p>MIME:<span class="font-mono">{{ preview.mime }}</span></p>
-        <p>尺寸:<span class="font-mono">{{ preview.dims ? `${preview.dims.width} × ${preview.dims.height}` : '未知' }}</span></p>
-        <p>大小:<span class="font-mono">{{ preview.bytes }} 字节</span>(Base64 约 {{ Math.ceil((preview.bytes * 4) / 3) }} 字符)</p>
+
+    <!-- 双栏工作台:输入在左,编码/解码双输出在右 -->
+    <div class="grid items-stretch gap-3 lg:grid-cols-2">
+      <PaneShell label="输入" :badge="MODE_LABELS[state.mode]" class="h-72 lg:h-full">
+        <template #actions>
+          <button
+            v-if="state.mode === 'b64' && state.input.startsWith('data:')"
+            type="button"
+            class="btn btn-ghost btn-xs"
+            @click="copy(state.input)"
+          >
+            {{ copied ? '已复制' : '复制 dataURL' }}
+          </button>
+          <button v-if="state.input" type="button" class="btn btn-ghost btn-xs" @click="state.input = ''">清空</button>
+        </template>
+        <!-- b64 模式独有:图片文件上传 → dataURL 回填(复用下方解码预览管道) -->
+        <div
+          v-if="state.mode === 'b64'"
+          class="dropzone cursor-pointer rounded-box border border-dashed px-3 py-2.5 text-center text-xs transition-colors"
+          :class="dragOver ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
+          role="button"
+          tabindex="0"
+          @dragover.prevent="dragOver = true"
+          @dragleave.prevent="dragOver = false"
+          @drop.prevent="onDrop"
+          @click="browseRef?.click()"
+          @keydown.enter.prevent="browseRef?.click()"
+        >
+          <input ref="browseRef" type="file" accept="image/*" class="hidden" @change="onBrowseChange" />
+          <p class="text-base-content/70">
+            {{ fileNote ? `已载入 ${fileNote} · ` : '' }}拖入或点击选择图片 → 转 Base64 dataURL
+          </p>
+          <p v-if="fileErr" class="text-error">{{ fileErr }}</p>
+        </div>
+        <CodeEditor v-model="state.input" :placeholder="inputPlaceholder" aria-label="待编解码文本" />
+        <template #footer>
+          <span>{{ state.input.length }} 字符</span>
+          <span v-if="inputLines > 1">{{ inputLines }} 行</span>
+        </template>
+      </PaneShell>
+
+      <div class="flex flex-col gap-3">
+        <!-- 图片 Base64 预览:dataURL 输入 → 缩略图 + 尺寸信息 -->
+        <div
+          v-if="preview"
+          class="image-preview flex items-start gap-4 rounded-box border border-base-300 bg-base-200/40 p-3"
+        >
+          <img :src="preview.url" alt="图片预览缩略图" class="max-h-40 max-w-[50%] rounded object-contain" />
+          <div class="min-w-0 flex-col gap-1 text-xs leading-relaxed opacity-80">
+            <p>MIME:<span class="font-mono">{{ preview.mime }}</span></p>
+            <p>尺寸:<span class="font-mono">{{ preview.dims ? `${preview.dims.width} × ${preview.dims.height}` : '未知' }}</span></p>
+            <p>大小:<span class="font-mono">{{ preview.bytes }} 字节</span>(Base64 约 {{ Math.ceil((preview.bytes * 4) / 3) }} 字符)</p>
+          </div>
+        </div>
+
+        <PaneShell :label="`编码 → ${MODE_LABELS[state.mode]}`" class="h-40 flex-1">
+          <template #actions>
+            <button v-if="encoded" type="button" class="btn btn-ghost btn-xs" @click="copy(encoded)">
+              {{ copied ? '已复制' : '复制' }}
+            </button>
+          </template>
+          <CodeOutput :text="encoded" empty-hint="输入后实时编码" />
+        </PaneShell>
+
+        <PaneShell label="解码 → 文本" class="h-40 flex-1">
+          <template #actions>
+            <button v-if="decoded && !decodedError" type="button" class="btn btn-ghost btn-xs" @click="copy(decoded)">
+              {{ copied ? '已复制' : '复制' }}
+            </button>
+          </template>
+          <CodeOutput :text="decodedError ? '' : decoded" empty-hint="输入编码串实时解码" />
+          <template #footer>
+            <span v-if="decodedError" class="text-error">{{ decodedError }}</span>
+          </template>
+        </PaneShell>
       </div>
     </div>
-    <ErrorBanner v-if="decodedError" :message="decodedError" />
-    <section v-if="encoded || decoded || decodedError" class="flex flex-col gap-3">
-      <div>
-        <h3 class="pb-1 text-sm font-semibold opacity-80">编码 → {{ MODE_LABELS[state.mode] }}</h3>
-        <pre class="whitespace-pre-wrap break-all rounded-box border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ encoded }}</pre>
-      </div>
-      <div v-if="!decodedError">
-        <h3 class="pb-1 text-sm font-semibold opacity-80">解码 → 文本</h3>
-        <pre v-if="decoded" class="whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ decoded }}</pre>
-      </div>
-      <button
-        v-if="(encoded || decoded) && !decodedError"
-        class="btn btn-sm btn-ghost w-fit"
-        @click="copy(encoded || decoded)"
-      >
-        {{ copied ? '已复制' : '复制编码结果' }}
-      </button>
-    </section>
   </div>
 </template>

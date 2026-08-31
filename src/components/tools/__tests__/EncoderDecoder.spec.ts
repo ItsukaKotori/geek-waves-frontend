@@ -151,3 +151,61 @@ describe('EncoderDecoder FE5 功能补全', () => {
     vi.useRealTimers()
   })
 })
+
+describe('图片文件 → dataURL(拖拽/选择回填)', () => {
+  const pngFile = () => {
+    const raw = new Uint8Array([
+      ...[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+      0, 0, 0, 13,
+      ...new TextEncoder().encode('IHDR'),
+      ...[0, 0, 0, 7],
+      ...[0, 0, 0, 9],
+      8, 6, 0, 0, 0,
+    ])
+    return new File([raw], 'dot.png', { type: 'image/png' })
+  }
+
+  it('仅 Base64 模式显示上传区(URL/Hex 不显示)', async () => {
+    const w = mount(EncoderDecoder)
+    expect(w.find('.dropzone').exists()).toBe(true)
+    await w.findAll('button').find((b) => b.text() === 'URL')!.trigger('click')
+    await nextTick()
+    expect(w.find('.dropzone').exists()).toBe(false)
+    await w.findAll('button').find((b) => b.text() === 'Hex')!.trigger('click')
+    await nextTick()
+    expect(w.find('.dropzone').exists()).toBe(false)
+  })
+
+  it('拖入图片:输入回填 dataURL,防抖后出现预览卡与文件信息', async () => {
+    const w = mount(EncoderDecoder)
+    await w.find('.dropzone').trigger('drop', { dataTransfer: { files: [pngFile()] } })
+    await vi.waitFor(() => {
+      expect(w.find('textarea').element.value).toMatch(/^data:image\/png;base64,/)
+    })
+    await vi.waitFor(() => {
+      expect(w.find('.image-preview img').exists()).toBe(true)
+    })
+    expect(w.find('.image-preview').text()).toContain('7 × 9')
+    expect(w.text()).toContain('dot.png')
+  })
+
+  it('非图片文件给行内错误,输入不被改写', async () => {
+    const w = mount(EncoderDecoder)
+    await w.find('textarea').setValue('已有内容')
+    const txt = new File([new Uint8Array([1, 2, 3])], 'a.txt', { type: 'text/plain' })
+    await w.find('.dropzone').trigger('drop', { dataTransfer: { files: [txt] } })
+    await vi.waitFor(() => {
+      expect(w.text()).toContain('仅支持图片')
+    })
+    expect(w.find('textarea').element.value).toBe('已有内容')
+  })
+
+  it('上传成功后提供「复制 dataURL」按钮', async () => {
+    const w = mount(EncoderDecoder)
+    await w.find('.dropzone').trigger('drop', { dataTransfer: { files: [pngFile()] } })
+    await vi.waitFor(() => {
+      expect(w.find('textarea').element.value).toMatch(/^data:image\/png;base64,/)
+    })
+    expect(w.findAll('button').some((b) => b.text().includes('复制 dataURL'))).toBe(true)
+  })
+})
