@@ -29,20 +29,20 @@ export function base64Encode(text: string): string {
 /** Base64 字符串 → 原始字节(容忍 URL-safe 字符,非法字符抛错);不含 UTF-8 解码 */
 export function base64DecodeBytes(text: string): Uint8Array {
   const clean = text.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '')
-  if (clean === '' && text !== '') throw new Error('Invalid base64 input')
+  if (clean === '' && text !== '') throw new Error('非法的 Base64 输入')
   const bytes: number[] = []
   for (let i = 0; i < clean.length; i += 4) {
     const a = B64.indexOf(clean[i])
     const b = B64.indexOf(clean[i + 1])
-    if (a < 0 || b < 0) throw new Error('Invalid base64 input')
+    if (a < 0 || b < 0) throw new Error('非法的 Base64 输入')
     bytes.push((a << 2) | (b >> 4))
     if (i + 2 < clean.length && clean[i + 2] !== '=') {
       const c = B64.indexOf(clean[i + 2])
-      if (c < 0) throw new Error('Invalid base64 input')
+      if (c < 0) throw new Error('非法的 Base64 输入')
       bytes.push(((b & 15) << 4) | (c >> 2))
       if (i + 3 < clean.length && clean[i + 3] !== '=') {
         const d = B64.indexOf(clean[i + 3])
-        if (d < 0) throw new Error('Invalid base64 input')
+        if (d < 0) throw new Error('非法的 Base64 输入')
         bytes.push(((c & 3) << 6) | d)
       }
     }
@@ -80,7 +80,7 @@ export function hexEncode(text: string): string {
 export function hexDecode(text: string): string {
   const clean = text.replace(HEX_CLEAN_RE, '')
   if (clean.length % 2 !== 0 || (clean !== '' && !HEX_VALID_RE.test(clean))) {
-    throw new Error('Invalid hex input:需要成对的十六进制字符')
+    throw new Error('非法的十六进制输入:需要成对的十六进制字符')
   }
   const bytes = new Uint8Array(clean.length / 2)
   for (let i = 0; i < bytes.length; i++) {

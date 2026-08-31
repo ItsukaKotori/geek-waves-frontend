@@ -28,9 +28,9 @@ describe('hexEncode / hexDecode', () => {
   })
 
   it('非法字符与奇数长度抛错', () => {
-    expect(() => hexDecode('zz')).toThrow(/hex/i)
-    expect(() => hexDecode('abc')).toThrow(/hex/i)
-    expect(() => hexDecode('6')).toThrow(/hex/i)
+    expect(() => hexDecode('zz')).toThrow(/非法的十六进制输入/)
+    expect(() => hexDecode('abc')).toThrow(/非法的十六进制输入/)
+    expect(() => hexDecode('6')).toThrow(/非法的十六进制输入/)
   })
 })
 
@@ -145,5 +145,17 @@ describe('sniffImageSize 二进制嗅探尺寸', () => {
     const url = `data:image/png;base64,${Buffer.from(raw).toString('base64')}`
     const parsed = parseDataUrl(url)
     expect(sniffImageSize(parsed!.bytes)).toEqual({ width: 7, height: 9 })
+  })
+})
+
+describe('错误文案中文化(行内错误统一口径)', () => {
+  it('非法 Base64 字符给中文提示', () => {
+    expect(() => base64Decode('!!!')).toThrow(/非法的 Base64 输入/)
+    expect(() => base64Decode('GeekWaves 工具中心')).toThrow(/非法的 Base64 输入/)
+  })
+
+  it('奇数长度 / 非法字符的 hex 给全中文提示', () => {
+    expect(() => hexDecode('abc')).toThrow(/非法的十六进制输入:需要成对的十六进制字符/)
+    expect(() => hexDecode('zz')).toThrow(/非法的十六进制输入:需要成对的十六进制字符/)
   })
 })

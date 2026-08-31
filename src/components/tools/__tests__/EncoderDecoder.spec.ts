@@ -48,7 +48,7 @@ describe('EncoderDecoder 实时式交互(FE3)', () => {
     await w.find('textarea').setValue('!!!')
     await vi.advanceTimersByTimeAsync(DEBOUNCE)
     await nextTick()
-    expect(w.text()).toContain('Invalid base64')
+    expect(w.text()).toContain('非法的 Base64 输入')
   })
 
   it('不再保留「编码 / 解码」等计算按钮,仅余复制类按钮', () => {
@@ -111,7 +111,7 @@ describe('EncoderDecoder FE5 功能补全', () => {
     await w.find('textarea').setValue('abc')
     await vi.advanceTimersByTimeAsync(DEBOUNCE)
     await nextTick()
-    expect(w.text()).toContain('Invalid hex')
+    expect(w.text()).toContain('非法的十六进制输入')
     vi.useRealTimers()
   })
 
