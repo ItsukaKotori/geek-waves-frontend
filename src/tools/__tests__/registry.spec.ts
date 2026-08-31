@@ -14,7 +14,7 @@ describe('toolRegistry 结构契约', () => {
       'b64', 'hash', 'jwt',
       'ts', 'radix', 'color',
       'http', 'cidr',
-      'regex', 'cron',
+      'regex', 'cron', 'chmod',
       'pwd',
     ])
   })

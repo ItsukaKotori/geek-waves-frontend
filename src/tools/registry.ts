@@ -150,6 +150,13 @@ export const toolRegistry: ToolGroup[] = [
         icon: ['M10 2h4', 'M12 14l3-3', 'M4.953 4.5a10 10 0 1 0 14.094 0'],
         component: defineAsyncComponent(() => import('../components/tools/CronParser.vue')),
       },
+      {
+        key: 'chmod',
+        label: 'Chmod 计算',
+        description: '文件权限八进制、符号形式与勾选位三方互算,特殊位与常用预设,生成 chmod 命令',
+        icon: ['M7 11V7a5 5 0 0 1 10 0v4', 'M5 11h14v10H5z'],
+        component: defineAsyncComponent(() => import('../components/tools/ChmodCalc.vue')),
+      },
     ],
   },
   {
