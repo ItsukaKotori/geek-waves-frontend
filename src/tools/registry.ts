@@ -178,6 +178,13 @@ export const toolRegistry: ToolGroup[] = [
         ],
         component: defineAsyncComponent(() => import('../components/tools/PasswordGenerator.vue')),
       },
+      {
+        key: 'qrcode',
+        label: '二维码生成',
+        description: '文本/URL 转二维码,纠错级别与尺寸可选,PNG/SVG 下载,本地渲染',
+        icon: ['M3 3h7v7H3z', 'M14 3h7v7h-7z', 'M3 14h7v7H3z', 'M14 14h3v3h-3z', 'M19 19h2v2h-2z'],
+        component: defineAsyncComponent(() => import('../components/tools/QrCode.vue')),
+      },
     ],
   },
 ]

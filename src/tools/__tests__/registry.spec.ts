@@ -15,7 +15,7 @@ describe('toolRegistry 结构契约', () => {
       'ts', 'radix', 'color',
       'http', 'cidr',
       'regex', 'cron', 'chmod',
-      'pwd',
+      'pwd', 'qrcode',
     ])
   })
 
