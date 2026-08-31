@@ -105,3 +105,52 @@ describe('TextDiff 实时对比', () => {
     expect(types).toEqual(['del', 'add'])
   })
 })
+
+describe('文件对比(拖拽/选择载入)', () => {
+  const file = (name: string, content: string) => new File([content], name, { type: 'text/plain' })
+  const drop = (w: ReturnType<typeof mount>, files: File[]) =>
+    w.find('.dropzone').trigger('drop', { dataTransfer: { files } })
+
+  it('拖入两个文件:按序回填旧/新两侧并自动出差异', async () => {
+    const w = mount(TextDiff)
+    await drop(w, [file('a.yml', 'name: geek\nport: 8080'), file('b.yml', 'name: geek\nport: 9090')])
+    await vi.waitFor(() => {
+      expect(w.find('[data-testid="diff-rows"]').exists()).toBe(true)
+    })
+    expect(w.findAll('[data-testid="diff-rows"] > div').map((r) => r.attributes('data-row-type'))).toEqual(['equal', 'del', 'add'])
+    expect(w.text()).toContain('a.yml')
+    expect(w.text()).toContain('b.yml')
+  })
+
+  it('拖入一个文件:只填旧侧,提示再拖第二个', async () => {
+    const w = mount(TextDiff)
+    await drop(w, [file('solo.txt', 'only one')])
+    await vi.waitFor(() => {
+      expect(w.text()).toContain('再拖入第二个')
+    })
+    expect((w.findAll('textarea')[0]!.element as HTMLTextAreaElement).value).toBe('only one')
+    expect((w.findAll('textarea')[1]!.element as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('非 UTF-8 文件:行内报错且不改写现有输入', async () => {
+    const w = mount(TextDiff)
+    await w.findAll('textarea')[0].setValue('已有内容')
+    const gbk = new File([new Uint8Array([0xc4, 0xe3, 0xba, 0xc3])], 'gbk.txt', { type: 'text/plain' })
+    await drop(w, [gbk])
+    await vi.waitFor(() => {
+      expect(w.text()).toContain('疑似编码不符')
+    })
+    expect((w.findAll('textarea')[0]!.element as HTMLTextAreaElement).value).toBe('已有内容')
+  })
+
+  it('单文件超过 2MB:拒绝载入并提示', async () => {
+    const w = mount(TextDiff)
+    const big = file('big.log', 'x')
+    Object.defineProperty(big, 'size', { value: 3 * 1024 * 1024 })
+    await drop(w, [big])
+    await vi.waitFor(() => {
+      expect(w.text()).toContain('2MB')
+    })
+    expect((w.findAll('textarea')[0]!.element as HTMLTextAreaElement).value).toBe('')
+  })
+})

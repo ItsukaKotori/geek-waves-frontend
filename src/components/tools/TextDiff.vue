@@ -7,6 +7,7 @@ import {
   withinDiffLimit,
   type DiffRow,
 } from '../../tools/textDiff'
+import { decodeUtf8Strict } from '../../tools/encodeDecode'
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
 import ErrorBanner from '../ui/ErrorBanner.vue'
@@ -86,10 +87,86 @@ watch(
 function swapSides(): void {
   ;[state.oldText, state.newText] = [state.newText, state.oldText]
 }
+
+/* 文件直接对比:1~2 个文件按序回填旧/新输入,复用下方整条实时管道 */
+
+const MAX_FILE_BYTES = 2 * 1024 * 1024
+const dragOver = ref(false)
+const fileErr = ref('')
+const loadedFiles = ref<string[]>([])
+const browseRef = ref<HTMLInputElement | null>(null)
+
+/** 单文件读取:尺寸先挡,UTF-8 严格解码(非 UTF-8 抛「疑似编码不符」) */
+function readTextFile(f: File): Promise<string> {
+  if (f.size > MAX_FILE_BYTES) throw new Error(`文件超过 2MB(${f.name}),已拒绝载入`)
+  return new Promise<string>((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => {
+      try {
+        resolve(decodeUtf8Strict(new Uint8Array(r.result as ArrayBuffer)))
+      } catch (e) {
+        reject(e)
+      }
+    }
+    r.onerror = () => reject(new Error(`读取失败:${f.name}`))
+    r.readAsArrayBuffer(f)
+  })
+}
+
+/** 全有或全无:任一文件解码失败都不动现有输入 */
+async function loadFiles(files: File[]): Promise<void> {
+  fileErr.value = ''
+  if (files.length === 0) return
+  if (files.length > 2) {
+    fileErr.value = '一次最多两个文件(第一个 → 旧文本,第二个 → 新文本)'
+    return
+  }
+  try {
+    const texts = await Promise.all(files.map(readTextFile))
+    state.oldText = texts[0] ?? ''
+    state.newText = texts[1] ?? ''
+    loadedFiles.value = files.map((f) => f.name)
+  } catch (e) {
+    fileErr.value = (e as Error).message
+  }
+}
+
+function onDrop(e: DragEvent): void {
+  dragOver.value = false
+  void loadFiles(Array.from(e.dataTransfer?.files ?? []))
+}
+
+function onBrowseChange(e: Event): void {
+  const input = e.target as HTMLInputElement
+  void loadFiles(Array.from(input.files ?? []))
+  input.value = ''
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-3" @keydown.ctrl.enter.prevent="recomputeNow" @keydown.meta.enter.prevent="recomputeNow">
+    <!-- 文件直接对比:拖入即回填下方输入(可继续手改) -->
+    <div
+      class="dropzone cursor-pointer rounded-box border border-dashed px-3 py-2.5 text-center text-xs transition-colors"
+      :class="dragOver ? 'border-primary bg-primary/5' : 'border-base-300 hover:border-base-content/30'"
+      role="button"
+      tabindex="0"
+      @dragover.prevent="dragOver = true"
+      @dragleave.prevent="dragOver = false"
+      @drop.prevent="onDrop"
+      @click="browseRef?.click()"
+      @keydown.enter.prevent="browseRef?.click()"
+    >
+      <input ref="browseRef" type="file" multiple class="hidden" @change="onBrowseChange" />
+      <p class="text-base-content/70">
+        <template v-if="loadedFiles.length">
+          {{ loadedFiles.join(' → ') }}<template v-if="loadedFiles.length === 1"> · 再拖入第二个文件完成对比</template>
+        </template>
+        <template v-else>拖入 1~2 个文件直接对比(第一个 → 旧文本,第二个 → 新文本)</template>
+      </p>
+      <p v-if="fileErr" class="text-error">{{ fileErr }}</p>
+    </div>
+
     <!-- 双输入工作台:旧 / 新两栏,中缝可交换两侧 -->
     <div class="grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
       <PaneShell label="旧文本" class="h-64">
