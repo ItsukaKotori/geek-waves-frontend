@@ -3,15 +3,20 @@ import { onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import {
   tsToDate,
   dateToTs,
+  dateDiff,
+  dateAdd,
   parseTsNumber,
   formatInstant,
   parseRelative,
   COMMON_ZONES,
+  type DateCalcUnit,
   type InstantFormats,
 } from '../../tools/timestamp'
 import { useCopy } from '../../composables/useCopy'
 import { useToolState } from '../../composables/useToolState'
 import { watchDebounced } from '../../composables/useDebounce'
+import PaneShell from '../tools-ui/PaneShell.vue'
+import PaneSeam from '../tools-ui/PaneSeam.vue'
 
 interface TimestampState {
   /** 时间戳 → 日期 的输入(v-model 遇 type=number 会自动转数值) */
@@ -22,6 +27,15 @@ interface TimestampState {
   zone: string
   /** 相对时间解析输入(「3 天前」/「in 2 hours」) */
   relText: string
+  /** 日期计算模式:差值 / 加减 */
+  dcMode: 'diff' | 'add'
+  /** 差值模式两端(datetime-local 值) */
+  dcFrom: string
+  dcTo: string
+  /** 加减模式:基准日期、数量与单位 */
+  dcBase: string
+  dcAmount: number
+  dcUnit: DateCalcUnit
   /** 当前时间戳自动刷新 */
   autoNow: boolean
 }
@@ -32,6 +46,12 @@ const { state } = useToolState<TimestampState>('ts', {
   localInput: '',
   zone: 'local',
   relText: '',
+  dcMode: 'diff',
+  dcFrom: '',
+  dcTo: '',
+  dcBase: '',
+  dcAmount: 1,
+  dcUnit: 'day',
   autoNow: false,
 })
 
@@ -54,6 +74,18 @@ const d2 = ref<{ s: number; ms: number } | null>(null)
 const d2Err = ref('')
 const relOut = ref<{ s: number; ms: number; text: string } | null>(null)
 const relErr = ref('')
+
+const dcOut = ref<string>('')
+const dcErr = ref('')
+
+const DC_UNITS: Array<{ id: DateCalcUnit; label: string }> = [
+  { id: 'minute', label: '分' },
+  { id: 'hour', label: '时' },
+  { id: 'day', label: '天' },
+  { id: 'week', label: '周' },
+  { id: 'month', label: '月' },
+  { id: 'year', label: '年' },
+]
 
 const nowS = ref(Math.floor(Date.now() / 1000))
 const nowMs = ref(Date.now())
@@ -113,10 +145,31 @@ function runRelative(): void {
   relOut.value = { s, ms, text: tsToDate(s) }
 }
 
+function runDateCalc(): void {
+  dcOut.value = ''
+  dcErr.value = ''
+  try {
+    if (state.dcMode === 'diff') {
+      if (!state.dcFrom || !state.dcTo) return
+      const d = dateDiff(state.dcFrom, state.dcTo)
+      dcOut.value =
+        `${d.days} 天 ${d.hours} 时 ${d.minutes} 分${d.negative ? '(后者更早)' : ''}\n` +
+        `总计 ${d.totalDays} 天(约 ${d.totalWeeks} 周)`
+    } else {
+      if (!state.dcBase) return
+      const r = dateAdd(state.dcBase, Number(state.dcAmount) || 0, state.dcUnit)
+      dcOut.value = `${r.iso}\ns=${r.ts.s} ms=${r.ts.ms}`
+    }
+  } catch (e) {
+    dcErr.value = (e as Error).message || '日期无法解析'
+  }
+}
+
 function run(): void {
   runDirection1()
   runDirection2()
   runRelative()
+  runDateCalc()
 }
 
 function recomputeNow(): void {
@@ -124,7 +177,18 @@ function recomputeNow(): void {
 }
 
 const runner = watchDebounced(
-  [tsTextStr, () => state.localInput, () => state.zone, () => state.relText],
+  [
+    tsTextStr,
+    () => state.localInput,
+    () => state.zone,
+    () => state.relText,
+    () => state.dcMode,
+    () => state.dcFrom,
+    () => state.dcTo,
+    () => state.dcBase,
+    () => state.dcAmount,
+    () => state.dcUnit,
+  ],
   run,
 )
 
@@ -151,6 +215,18 @@ watch(
     if (!v.trim()) {
       relOut.value = null
       relErr.value = ''
+    }
+  },
+)
+/** 日期计算清空端点立即失效旧结果,不等防抖窗口 */
+watch(
+  [() => state.dcMode, () => state.dcFrom, () => state.dcTo, () => state.dcBase],
+  () => {
+    const empty =
+      state.dcMode === 'diff' ? !state.dcFrom || !state.dcTo : !state.dcBase
+    if (empty) {
+      dcOut.value = ''
+      dcErr.value = ''
     }
   },
 )
@@ -196,81 +272,158 @@ function fillNow(): void {
 </script>
 
 <template>
-  <div class="flex flex-col gap-4" @keydown.ctrl.enter.prevent="recomputeNow">
-    <h2 class="text-base font-semibold tracking-tight">时间戳</h2>
+  <div class="grid items-start gap-3 lg:grid-cols-[1fr_auto_1fr]" @keydown.ctrl.enter.prevent="recomputeNow">
+    <!-- 输入侧:三个方向各一个输入;顺序即测试契约(checkbox 一律排在最后) -->
+    <PaneShell label="输入" class="lg:h-full">
+      <div class="flex flex-col divide-y divide-base-300">
+        <section class="flex flex-col gap-1.5 p-3">
+          <label for="ts-in" class="text-xs font-medium tracking-wider text-base-content/50">时间戳 → 日期时间</label>
+          <div class="flex gap-2">
+            <input
+              id="ts-in"
+              v-model="state.tsText"
+              type="number"
+              placeholder="1700000000 或 1700000000000"
+              class="input input-sm min-w-0 flex-1 font-mono"
+            />
+            <button type="button" class="btn btn-sm btn-primary" @click="fillNow">现在</button>
+          </div>
+          <p v-if="unitNote" class="text-xs opacity-60">{{ unitNote }}</p>
+          <p v-if="d1Err" class="text-error text-sm">{{ d1Err }}</p>
+        </section>
 
-    <section class="flex flex-col gap-2">
-      <h3 class="text-sm font-semibold opacity-80">时间戳 → 日期时间</h3>
-      <input v-model="state.tsText" type="number" placeholder="1700000000 或 1700000000000" class="input input-sm font-mono" />
-      <p v-if="d1Err" class="text-error text-sm">{{ d1Err }}</p>
-      <!-- 多格式同显:同一输入并列 ISO8601 / UTC 字符串 / 本地格式 / 选定时区 / 相对时间 -->
-      <div v-if="mf" class="grid gap-1">
-        <div class="flex items-center gap-2">
-          <span class="w-20 shrink-0 text-xs opacity-60">ISO8601</span>
-          <code class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded border border-base-300 bg-base-200/60 px-2 py-1 font-mono text-xs">{{ mf.iso }}</code>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-20 shrink-0 text-xs opacity-60">UTC</span>
-          <code class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded border border-base-300 bg-base-200/60 px-2 py-1 font-mono text-xs">{{ mf.utc }}</code>
-        </div>
-        <div class="flex items-start gap-2">
-          <span class="w-20 shrink-0 pt-1 text-xs opacity-60">本地</span>
-          <pre class="flex-1 whitespace-pre-wrap rounded border border-base-300 bg-base-200/60 p-1 font-mono text-xs">{{ mf.local }}</pre>
-          <button class="btn btn-sm btn-ghost" @click="copy(mf.iso)">
-            {{ copied ? '已复制' : '复制' }}
-          </button>
-        </div>
-        <div v-if="mf.zoneTime" class="flex items-center gap-2">
-          <span class="w-20 shrink-0 truncate text-xs opacity-60">{{ zoneLabel() }}</span>
-          <code class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded border border-base-300 bg-base-200/60 px-2 py-1 font-mono text-xs">{{ mf.zoneTime }}</code>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-20 shrink-0 text-xs opacity-60">相对</span>
-          <code class="rounded px-2 py-1 font-mono text-xs text-primary">{{ mf.relative }}</code>
-        </div>
+        <section class="flex flex-col gap-1.5 p-3">
+          <label for="ts-local" class="text-xs font-medium tracking-wider text-base-content/50">日期时间 → 时间戳</label>
+          <input id="ts-local" v-model="state.localInput" type="datetime-local" class="input input-sm flex-1" />
+          <p v-if="d2Err" class="text-error text-sm">{{ d2Err }}</p>
+        </section>
+
+        <section class="flex flex-col gap-1.5 p-3">
+          <label for="ts-rel" class="text-xs font-medium tracking-wider text-base-content/50">相对时间解析(中文优先)</label>
+          <input
+            id="ts-rel"
+            v-model="state.relText"
+            placeholder="如:3 天前 / 半小时后 / in 2 hours"
+            class="input input-sm font-mono"
+          />
+          <p v-if="relErr" class="text-error text-sm">{{ relErr }}</p>
+        </section>
+
+        <section class="flex flex-col gap-1.5 p-3">
+          <span class="text-xs font-medium tracking-wider text-base-content/50">日期计算(差值 / 加减)</span>
+          <div class="join self-start">
+            <button
+              v-for="m in [{ id: 'diff', label: '差值' }, { id: 'add', label: '加减' }] as const"
+              :key="m.id"
+              type="button"
+              class="btn btn-xs join-item"
+              :class="state.dcMode === m.id ? 'btn-primary' : 'btn-ghost'"
+              @click="state.dcMode = m.id"
+            >
+              {{ m.label }}
+            </button>
+          </div>
+          <div v-if="state.dcMode === 'diff'" class="flex items-center gap-2">
+            <input v-model="state.dcFrom" type="datetime-local" aria-label="差值起点" class="input input-sm min-w-0 flex-1" />
+            <span class="text-xs opacity-40">→</span>
+            <input v-model="state.dcTo" type="datetime-local" aria-label="差值终点" class="input input-sm min-w-0 flex-1" />
+          </div>
+          <div v-else class="flex items-center gap-2">
+            <input v-model="state.dcBase" type="datetime-local" aria-label="加减基准日期" class="input input-sm min-w-0 flex-1" />
+            <input
+              v-model.number="state.dcAmount"
+              type="number"
+              aria-label="加减数量"
+              class="input input-sm w-20"
+            />
+            <div class="join">
+              <button
+                v-for="u in DC_UNITS"
+                :key="u.id"
+                type="button"
+                class="btn btn-xs join-item"
+                :class="state.dcUnit === u.id ? 'btn-primary' : 'btn-ghost'"
+                @click="state.dcUnit = u.id"
+              >
+                {{ u.label }}
+              </button>
+            </div>
+          </div>
+          <p class="text-xs opacity-50">月/年按日历语义,月末自动收敛(1/31 + 1 月 → 2/28)</p>
+          <p v-if="dcErr" class="text-error text-sm">{{ dcErr }}</p>
+        </section>
       </div>
-      <p v-if="unitNote" class="text-xs opacity-60">{{ unitNote }}</p>
-      <select v-model="state.zone" class="select select-sm w-fit" aria-label="显示时区">
-        <option v-for="opt in ZONE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-      </select>
-    </section>
+    </PaneShell>
 
-    <section class="flex flex-col gap-2">
-      <h3 class="text-sm font-semibold opacity-80">日期时间 → 时间戳</h3>
-      <input v-model="state.localInput" type="datetime-local" class="input input-sm flex-1" />
-      <p v-if="d2Err" class="text-error text-sm">{{ d2Err }}</p>
-      <div v-if="d2" class="flex items-center gap-2">
-        <pre class="flex-1 whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3">s={{ d2.s }}
-ms={{ d2.ms }}</pre>
-        <button class="btn btn-sm btn-ghost" @click="copy(`s=${d2?.s}\nms=${d2?.ms}`)">
+    <PaneSeam direction="lr" />
+
+    <!-- 输出侧:多格式同显 + 各方向结果 + 实时钟表 -->
+    <PaneShell label="输出" class="lg:h-full">
+      <template #actions>
+        <select v-model="state.zone" class="select select-xs w-36" aria-label="显示时区">
+          <option v-for="opt in ZONE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+        </select>
+        <button v-if="mf" type="button" class="btn btn-ghost btn-xs" @click="copy(mf.iso)">
           {{ copied ? '已复制' : '复制' }}
         </button>
-      </div>
-    </section>
+      </template>
+      <div class="h-full overflow-auto p-3">
+        <!-- 多格式同显:同一输入并列 ISO8601 / UTC 字符串 / 本地格式 / 选定时区 / 相对时间 -->
+        <div v-if="mf" class="grid gap-1">
+          <div class="flex items-center gap-2">
+            <span class="w-20 shrink-0 text-xs opacity-60">ISO8601</span>
+            <code class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded border border-base-300 bg-base-200/60 px-2 py-1 font-mono text-xs">{{ mf.iso }}</code>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-20 shrink-0 text-xs opacity-60">UTC</span>
+            <code class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded border border-base-300 bg-base-200/60 px-2 py-1 font-mono text-xs">{{ mf.utc }}</code>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="w-20 shrink-0 pt-1 text-xs opacity-60">本地</span>
+            <pre class="flex-1 whitespace-pre-wrap rounded border border-base-300 bg-base-200/60 p-1 font-mono text-xs">{{ mf.local }}</pre>
+          </div>
+          <div v-if="mf.zoneTime" class="flex items-center gap-2">
+            <span class="w-20 shrink-0 truncate text-xs opacity-60">{{ zoneLabel() }}</span>
+            <code class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded border border-base-300 bg-base-200/60 px-2 py-1 font-mono text-xs">{{ mf.zoneTime }}</code>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-20 shrink-0 text-xs opacity-60">相对</span>
+            <code class="rounded px-2 py-1 font-mono text-xs text-primary">{{ mf.relative }}</code>
+          </div>
+        </div>
 
-    <section class="flex flex-col gap-2">
-      <h3 class="text-sm font-semibold opacity-80">相对时间解析(中文优先)</h3>
-      <input v-model="state.relText" placeholder="如:3 天前 / 半小时后 / in 2 hours" class="input input-sm font-mono" />
-      <p v-if="relErr" class="text-error text-sm">{{ relErr }}</p>
-      <div v-if="relOut" class="flex items-center gap-2">
-        <pre class="flex-1 whitespace-pre-wrap rounded-box border border-base-300 bg-base-200/60 p-3">s={{ relOut.s }}
+        <div v-if="d2" class="mt-3">
+          <p class="pb-1 text-xs font-medium tracking-wider text-base-content/50">日期 → 时间戳</p>
+          <pre class="whitespace-pre-wrap rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm">s={{ d2.s }}
+ms={{ d2.ms }}</pre>
+        </div>
+
+        <div v-if="relOut" class="mt-3">
+          <p class="pb-1 text-xs font-medium tracking-wider text-base-content/50">相对时间 → 时间戳</p>
+          <pre class="whitespace-pre-wrap rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm">s={{ relOut.s }}
 ms={{ relOut.ms }}
 {{ relOut.text }}</pre>
-        <button class="btn btn-sm btn-ghost" @click="copy(`s=${relOut?.s}\nms=${relOut?.ms}`)">
-          {{ copied ? '已复制' : '复制' }}
-        </button>
+        </div>
+
+        <div v-if="dcOut" class="mt-3">
+          <p class="pb-1 text-xs font-medium tracking-wider text-base-content/50">日期计算</p>
+          <pre class="whitespace-pre-wrap rounded border border-base-300 bg-base-200/60 p-3 font-mono text-sm">{{ dcOut }}</pre>
+        </div>
+
+        <p
+          v-if="!mf && !d2 && !relOut && !dcOut"
+          class="flex h-full min-h-20 items-center justify-center font-mono text-xs text-base-content/35"
+        >
+          输入任意一侧,实时换算
+        </p>
       </div>
-    </section>
-
-    <section class="flex items-center gap-4">
-      <button class="btn btn-sm btn-primary" @click="fillNow">现在</button>
-      <label class="cursor-pointer items-center gap-2 text-sm">
-        <input v-model="state.autoNow" type="checkbox" class="checkbox checkbox-sm align-middle" />
-        实时时钟
-      </label>
-      <span class="now-clock font-mono text-sm opacity-80">s={{ nowS }} · ms={{ nowMs }}</span>
-    </section>
-
-    <span class="text-xs opacity-50">输入后实时转换,Ctrl+Enter 立即重算</span>
+      <template #footer>
+        <span class="now-clock">s={{ nowS }} · ms={{ nowMs }}</span>
+        <label class="ml-auto flex cursor-pointer items-center gap-1.5" title="每秒刷新当前时间戳">
+          <input v-model="state.autoNow" type="checkbox" class="checkbox checkbox-xs align-middle" />
+          实时时钟
+        </label>
+      </template>
+    </PaneShell>
   </div>
 </template>

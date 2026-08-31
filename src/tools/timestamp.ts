@@ -11,6 +11,74 @@ export function dateToTs(date: Date): { s: number; ms: number } {
   return { s: Math.floor(ms / 1000), ms }
 }
 
+/* ------------------------------ 日期差值 / 加减 ------------------------------ */
+
+/** datetime-local 字符串(YYYY-MM-DDTHH:mm[:ss])按本地墙上钟解析;无效抛错 */
+function parseLocalDateTime(raw: string): Date {
+  const d = new Date(raw)
+  if (!raw || Number.isNaN(d.getTime())) throw new Error('日期无法解析')
+  return d
+}
+
+export interface DateDiff {
+  /** b 早于 a 时为 true */
+  negative: boolean
+  days: number
+  hours: number
+  minutes: number
+  /** 整天计的总天数(向下取整) */
+  totalDays: number
+  totalWeeks: number
+}
+
+/** 两个本地日期时间的差值:分解为 X 天 Y 时 Z 分,另给整天/整周总计(忽略秒) */
+export function dateDiff(aIso: string, bIso: string): DateDiff {
+  const gap = parseLocalDateTime(bIso).getTime() - parseLocalDateTime(aIso).getTime()
+  const abs = Math.abs(gap)
+  return {
+    negative: gap < 0,
+    days: Math.floor(abs / 86_400_000),
+    hours: Math.floor((abs % 86_400_000) / 3_600_000),
+    minutes: Math.floor((abs % 3_600_000) / 60_000),
+    totalDays: Math.floor(abs / 86_400_000),
+    totalWeeks: Math.floor(abs / (7 * 86_400_000)),
+  }
+}
+
+export type DateCalcUnit = 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year'
+
+const FIXED_UNIT_MS: Record<Exclude<DateCalcUnit, 'month' | 'year'>, number> = {
+  minute: 60_000,
+  hour: 3_600_000,
+  day: 86_400_000,
+  week: 7 * 86_400_000,
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate()
+}
+
+/**
+ * 日历语义日期加减:分/时/天/周为绝对毫秒运算(可跨日进位);
+ * 月/年按墙上钟日历进位,目标月天数不足时收敛到月末(2026-01-31 +1月 = 02-28)。
+ */
+export function dateAdd(baseIso: string, amount: number, unit: DateCalcUnit): { iso: string; ts: { s: number; ms: number } } {
+  const base = parseLocalDateTime(baseIso)
+  let result: Date
+  if (unit === 'month' || unit === 'year') {
+    const months = Math.round(amount) * (unit === 'year' ? 12 : 1)
+    const day = base.getDate()
+    result = new Date(base)
+    result.setDate(1) // 先落到 1 号避免 setMonth 溢出跳月
+    result.setMonth(result.getMonth() + months)
+    result.setDate(Math.min(day, daysInMonth(result.getFullYear(), result.getMonth())))
+  } else {
+    result = new Date(base.getTime() + amount * FIXED_UNIT_MS[unit])
+  }
+  const iso = `${result.getFullYear()}-${pad(result.getMonth() + 1)}-${pad(result.getDate())} ${pad(result.getHours())}:${pad(result.getMinutes())}`
+  return { iso, ts: dateToTs(result) }
+}
+
 /** 解析用户输入的时间戳字符串:10 位秒 / 13 位毫秒自适应,超安全整数范围显式报错 */
 export function parseTsNumber(raw: string): { s: number; ms: number; unit: 's' | 'ms' } {
   const n = Number(raw.trim())

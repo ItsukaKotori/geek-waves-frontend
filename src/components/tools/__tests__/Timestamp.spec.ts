@@ -159,3 +159,54 @@ describe('Timestamp FE5 功能补全', () => {
     vi.useRealTimers()
   })
 })
+
+describe('日期计算(第 4 输入区)', () => {
+  const dtInputs = (w: ReturnType<typeof mount>) => w.findAll('input[type="datetime-local"]')
+  const btn = (w: ReturnType<typeof mount>, text: string) =>
+    w.findAll('button').find((b) => b.text().trim() === text)
+
+  it('差值模式:两个日期实时给出 X 天 Y 时 Z 分与总计', async () => {
+    vi.useFakeTimers()
+    const w = mount(Timestamp)
+    // datetime-local[0] 是「日期→时间戳」的既有输入,[1]/[2] 是日期计算的两个端点
+    await dtInputs(w)[1].setValue('2026-08-28T10:00')
+    await dtInputs(w)[2].setValue('2026-08-31T10:00')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('3 天 0 时 0 分')
+    expect(w.text()).toContain('总计 3 天')
+  })
+
+  it('差值方向:后端点更早时给出标注', async () => {
+    vi.useFakeTimers()
+    const w = mount(Timestamp)
+    await dtInputs(w)[1].setValue('2026-08-31T10:00')
+    await dtInputs(w)[2].setValue('2026-08-28T10:00')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('3 天')
+    expect(w.text()).toContain('后者更早')
+  })
+
+  it('加减模式:月末收敛 2026-01-31 +1 月 = 2026-02-28 12:00', async () => {
+    vi.useFakeTimers()
+    const w = mount(Timestamp)
+    await btn(w, '加减')!.trigger('click')
+    await nextTick()
+    await dtInputs(w)[1].setValue('2026-01-31T12:00')
+    await w.find('input[aria-label="加减数量"]').setValue('1')
+    await btn(w, '月')!.trigger('click')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(w.text()).toContain('2026-02-28 12:00')
+  })
+
+  it('不干扰既有输入区:时间戳主功能照常(输入契约不回归)', async () => {
+    vi.useFakeTimers()
+    const w = mount(Timestamp)
+    await w.findAll('input')[0].setValue('1700000000')
+    await vi.advanceTimersByTimeAsync(DEBOUNCE)
+    await nextTick()
+    expect(pres(w)[0]).toBe(tsToDate(1700000000))
+  })
+})

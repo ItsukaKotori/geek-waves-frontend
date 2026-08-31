@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   COMMON_ZONES,
+  dateAdd,
+  dateDiff,
   formatInstant,
   formatRelative,
   parseRelative,
@@ -168,5 +170,81 @@ describe('COMMON_ZONES', () => {
     }
     expect(COMMON_ZONES).toContain('Asia/Shanghai')
     expect(COMMON_ZONES.length).toBeGreaterThanOrEqual(6)
+  })
+})
+
+describe('dateDiff 日期差值(本地墙上钟)', () => {
+  it('整三天:天/时/分与总计', () => {
+    expect(dateDiff('2026-08-28T10:00', '2026-08-31T10:00')).toEqual({
+      negative: false,
+      days: 3,
+      hours: 0,
+      minutes: 0,
+      totalDays: 3,
+      totalWeeks: 0,
+    })
+  })
+
+  it('反向输入标记 negative,量级不变', () => {
+    const r = dateDiff('2026-08-31T10:00', '2026-08-28T10:00')
+    expect(r.negative).toBe(true)
+    expect(r.days).toBe(3)
+  })
+
+  it('混合差额分解为 X 天 Y 时 Z 分', () => {
+    const r = dateDiff('2026-08-31T08:30', '2026-09-02T10:45')
+    expect(r.days).toBe(2)
+    expect(r.hours).toBe(2)
+    expect(r.minutes).toBe(15)
+    expect(r.totalDays).toBe(2)
+  })
+
+  it('整两周 totalWeeks=2', () => {
+    expect(dateDiff('2026-08-17T00:00', '2026-08-31T00:00').totalWeeks).toBe(2)
+  })
+
+  it('无效日期抛错', () => {
+    expect(() => dateDiff('not-a-date', '2026-08-31T00:00')).toThrow('日期无法解析')
+    expect(() => dateDiff('2026-08-31T00:00', '')).toThrow('日期无法解析')
+  })
+})
+
+describe('dateAdd 日历语义加减', () => {
+  it('月末加月收敛:2026-01-31 +1 月 = 02-28(非闰年)', () => {
+    expect(dateAdd('2026-01-31T12:00', 1, 'month').iso).toBe('2026-02-28 12:00')
+  })
+
+  it('闰年月末:2024-01-31 +1 月 = 02-29', () => {
+    expect(dateAdd('2024-01-31T00:00', 1, 'month').iso).toBe('2024-02-29 00:00')
+  })
+
+  it('闰日加年收敛:2024-02-29 +1 年 = 2025-02-28', () => {
+    expect(dateAdd('2024-02-29T10:30', 1, 'year').iso).toBe('2025-02-28 10:30')
+  })
+
+  it('负数月份同样收敛:2026-03-31 -1 月 = 02-28', () => {
+    expect(dateAdd('2026-03-31T10:00', -1, 'month').iso).toBe('2026-02-28 10:00')
+  })
+
+  it('月份进位跨年:2026-12-15 +1 月 = 2027-01-15', () => {
+    expect(dateAdd('2026-12-15T09:00', 1, 'month').iso).toBe('2027-01-15 09:00')
+  })
+
+  it('固定时长单位为绝对毫秒运算:跨日进位', () => {
+    expect(dateAdd('2026-08-31T23:30', 60, 'minute').iso).toBe('2026-09-01 00:30')
+    expect(dateAdd('2026-08-31T23:30', 2, 'week').iso).toBe('2026-09-14 23:30')
+    expect(dateAdd('2026-08-31T10:00', 5, 'day').iso).toBe('2026-09-05 10:00')
+    expect(dateAdd('2026-08-31T10:00', 3, 'hour').iso).toBe('2026-08-31 13:00')
+  })
+
+  it('返回的时间戳与 iso 相互印证', () => {
+    const r = dateAdd('2026-08-31T10:00', 3, 'day')
+    expect(new Date(r.iso.replace(' ', 'T')).getTime()).toBe(r.ts.ms)
+    expect(r.ts.s).toBe(Math.floor(r.ts.ms / 1000))
+  })
+
+  it('无效基准日期抛错', () => {
+    expect(() => dateAdd('', 1, 'day')).toThrow('日期无法解析')
+    expect(() => dateAdd('2026-13-01T00:00', 1, 'month')).toThrow('日期无法解析')
   })
 })
