@@ -11,7 +11,7 @@ describe('toolRegistry 结构契约', () => {
   it('包含全部既有工具(Markdown 预览已移除),key 唯一且分组顺序稳定', () => {
     expect(allKeys).toEqual([
       'json', 'diff',
-      'b64', 'hash', 'jwt',
+      'b64', 'hash', 'jwt', 'crypto',
       'ts', 'radix', 'color',
       'http', 'cidr',
       'regex', 'cron', 'chmod',

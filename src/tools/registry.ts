@@ -71,6 +71,13 @@ export const toolRegistry: ToolGroup[] = [
         ],
         component: defineAsyncComponent(() => import('../components/tools/JwtParser.vue')),
       },
+      {
+        key: 'crypto',
+        label: '加密解密',
+        description: 'AES-GCM/CBC、RSA-OAEP/PSS 加解密与签名验签,密钥生成及 PEM/JWK 互转,全程本地计算',
+        icon: ['M7 11V7a5 5 0 0 1 10 0v4', 'M5 11h14v10H5z'],
+        component: defineAsyncComponent(() => import('../components/tools/CryptoTool.vue')),
+      },
     ],
   },
   {
